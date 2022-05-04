@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Machine Learning on Ran&#39;s Blog</title>
+    <link>https://chosenone75.github.io/categories/machine-learning/</link>
+    <description>Recent content in Machine Learning on Ran&#39;s Blog</description>
+    <image>
+      <url>https://chosenone75.github.io/papermod-cover.png</url>
+      <link>https://chosenone75.github.io/papermod-cover.png</link>
+    </image>
+    <generator>Hugo -- gohugo.io</generator>
+    <lastBuildDate>Sun, 27 Aug 2017 11:08:41 +0000</lastBuildDate><atom:link href="https://chosenone75.github.io/categories/machine-learning/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>支持向量机-4-一点小Buff</title>
+      <link>https://chosenone75.github.io/posts/2017-08-27-%E6%94%AF%E6%8C%81%E5%90%91%E9%87%8F%E6%9C%BA-4-%E4%B8%80%E7%82%B9%E5%B0%8Fbuff/</link>
+      <pubDate>Sun, 27 Aug 2017 11:08:41 +0000</pubDate>
+      
+      <guid>https://chosenone75.github.io/posts/2017-08-27-%E6%94%AF%E6%8C%81%E5%90%91%E9%87%8F%E6%9C%BA-4-%E4%B8%80%E7%82%B9%E5%B0%8Fbuff/</guid>
+      <description>&lt;h2 id=&#34;前言&#34;&gt;前言&lt;/h2&gt;
+&lt;p&gt;在之前的几篇文章中，我们简单介绍了 &lt;em&gt;SVM&lt;/em&gt; 的来龙去脉，从想要最大化分类间隔出发，然后将问题整理为一个QP问题，并在这个过程中引入了 &lt;em&gt;Kernel Trick&lt;/em&gt;，最后将整理后的原始问题的求解转化为其对应的对偶问题的求解，对偶问题仍然是一个QP问题，可以使用一些现成的工具包来求解，到这里就可以说自己已经掌握了 &lt;em&gt;SVM&lt;/em&gt; 这个算法的核心思想了，但是不知道大家是否和我一样心里会有一点别扭的地方：由于 &lt;em&gt;QP&lt;/em&gt; 问题的求解需要依赖工具包，貌似我不能完全从头实现一个 &lt;em&gt;SVM&lt;/em&gt; ,除非我自己去实现一个求解 &lt;em&gt;QP&lt;/em&gt; 问题的工具包：），而这似乎不太现实。 我记得以前看过一句话，“what I can&amp;rsquo;t create it, I don&amp;rsquo;t understand it.”, 所以，我们还是要坚持自己去实现它，那应该怎么办呢？很简单，&lt;em&gt;QP Solver&lt;/em&gt; 很难实现，那咱们就换一种求解方法呗，这就是本文提到的 &lt;em&gt;&lt;strong&gt;Sequential Minimal Optimization Algorithm&lt;/strong&gt;&lt;/em&gt;(序列最小优化算法)，在下文中将其简单记为&lt;em&gt;&lt;strong&gt;SMO&lt;/strong&gt;&lt;/em&gt;，顺便说一句，在真正的 &lt;em&gt;SVM&lt;/em&gt; 工业级实现像LIBSVM 中，往往也是采用的&lt;em&gt;SMO&lt;/em&gt; 算法。&lt;/p&gt;</description>
+    </item>
+    
+  </channel>
+</rss>

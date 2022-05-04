@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en" dir="auto">
+
+<head><meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+<meta name="robots" content="index, follow">
+<title>支持向量机-4-一点小Buff | Ran&#39;s Blog</title>
+<meta name="keywords" content="support vector machine, optimization, smo, machine learning">
+<meta name="description" content="前言
+在之前的几篇文章中，我们简单介绍了 SVM 的来龙去脉，从想要最大化分类间隔出发，然后将问题整理为一个QP问题，并在这个过程中引入了 Kernel Trick，最后将整理后的原始问题的求解转化为其对应的对偶问题的求解，对偶问题仍然是一个QP问题，可以使用一些现成的工具包来求解，到这里就可以说自己已经掌握了 SVM 这个算法的核心思想了，但是不知道大家是否和我一样心里会有一点别扭的地方：由于 QP 问题的求解需要依赖工具包，貌似我不能完全从头实现一个 SVM ,除非我自己去实现一个求解 QP 问题的工具包：），而这似乎不太现实。 我记得以前看过一句话，“what I can&rsquo;t create it, I don&rsquo;t understand it.”, 所以，我们还是要坚持自己去实现它，那应该怎么办呢？很简单，QP Solver 很难实现，那咱们就换一种求解方法呗，这就是本文提到的 Sequential Minimal Optimization Algorithm(序列最小优化算法)，在下文中将其简单记为SMO，顺便说一句，在真正的 SVM 工业级实现像LIBSVM 中，往往也是采用的SMO 算法。">
+<meta name="author" content="Xiangying Ran">
+<link rel="canonical" href="https://chosenone75.github.io/posts/2017-08-27-%E6%94%AF%E6%8C%81%E5%90%91%E9%87%8F%E6%9C%BA-4-%E4%B8%80%E7%82%B9%E5%B0%8Fbuff/">
+<link crossorigin="anonymous" href="/assets/css/stylesheet.min.ec8da366ca2fb647537ccb7a8f6fa5b4e9cd3c7a0d3171dd2d3baad1e49c8bfc.css" integrity="sha256-7I2jZsovtkdTfMt6j2&#43;ltOnNPHoNMXHdLTuq0eSci/w=" rel="preload stylesheet" as="style">
+<script defer crossorigin="anonymous" src="/assets/js/highlight.min.2840b7fccd34145847db71a290569594bdbdb00047097f75d6495d162f5d7dff.js" integrity="sha256-KEC3/M00FFhH23GikFaVlL29sABHCX911kldFi9dff8="
+    onload="hljs.initHighlightingOnLoad();"></script>
+<link rel="icon" href="https://chosenone75.github.io/favicon.ico">
+<link rel="icon" type="image/png" sizes="16x16" href="https://chosenone75.github.io/favicon-16x16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="https://chosenone75.github.io/favicon-32x32.png">
+<link rel="apple-touch-icon" href="https://chosenone75.github.io/apple-touch-icon.png">
+<link rel="mask-icon" href="https://chosenone75.github.io/safari-pinned-tab.svg">
+<meta name="theme-color" content="#2e2e33">
+<meta name="msapplication-TileColor" content="#2e2e33">
+<noscript>
+    <style>
+        #theme-toggle,
+        .top-link {
+            display: none;
+        }
+
+    </style>
+    <style>
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --theme: rgb(29, 30, 32);
+                --entry: rgb(46, 46, 51);
+                --primary: rgb(218, 218, 219);
+                --secondary: rgb(155, 156, 157);
+                --tertiary: rgb(65, 66, 68);
+                --content: rgb(196, 196, 197);
+                --hljs-bg: rgb(46, 46, 51);
+                --code-bg: rgb(55, 56, 62);
+                --border: rgb(51, 51, 51);
+            }
+
+            .list {
+                background: var(--theme);
+            }
+
+            .list:not(.dark)::-webkit-scrollbar-track {
+                background: 0 0;
+            }
+
+            .list:not(.dark)::-webkit-scrollbar-thumb {
+                border-color: var(--theme);
+            }
+        }
+
+    </style>
+</noscript>
+
+<script>
+    MathJax = {
+      tex: {
+        inlineMath: [['$', '$'], ['\\(', '\\)']],
+        displayMath: [['$$','$$'], ['\\[', '\\]']],
+        processEscapes: true,
+        processEnvironments: true
+      },
+      options: {
+        skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre']
+      }
+    };
+  
+    window.addEventListener('load', (event) => {
+        document.querySelectorAll("mjx-container").forEach(function(x){
+          x.parentElement.classList += 'has-jax'})
+      });
+  
+  </script>
+  <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+  <script type="text/javascript" id="MathJax-script" async
+    src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+<meta property="og:title" content="支持向量机-4-一点小Buff" />
+<meta property="og:description" content="前言
+在之前的几篇文章中，我们简单介绍了 SVM 的来龙去脉，从想要最大化分类间隔出发，然后将问题整理为一个QP问题，并在这个过程中引入了 Kernel Trick，最后将整理后的原始问题的求解转化为其对应的对偶问题的求解，对偶问题仍然是一个QP问题，可以使用一些现成的工具包来求解，到这里就可以说自己已经掌握了 SVM 这个算法的核心思想了，但是不知道大家是否和我一样心里会有一点别扭的地方：由于 QP 问题的求解需要依赖工具包，貌似我不能完全从头实现一个 SVM ,除非我自己去实现一个求解 QP 问题的工具包：），而这似乎不太现实。 我记得以前看过一句话，“what I can&rsquo;t create it, I don&rsquo;t understand it.”, 所以，我们还是要坚持自己去实现它，那应该怎么办呢？很简单，QP Solver 很难实现，那咱们就换一种求解方法呗，这就是本文提到的 Sequential Minimal Optimization Algorithm(序列最小优化算法)，在下文中将其简单记为SMO，顺便说一句，在真正的 SVM 工业级实现像LIBSVM 中，往往也是采用的SMO 算法。" />
+<meta property="og:type" content="article" />
+<meta property="og:url" content="https://chosenone75.github.io/posts/2017-08-27-%E6%94%AF%E6%8C%81%E5%90%91%E9%87%8F%E6%9C%BA-4-%E4%B8%80%E7%82%B9%E5%B0%8Fbuff/" /><meta property="og:image" content="https://chosenone75.github.io/papermod-cover.png"/><meta property="article:section" content="posts" />
+<meta property="article:published_time" content="2017-08-27T11:08:41&#43;00:00" />
+<meta property="article:modified_time" content="2017-08-27T11:08:41&#43;00:00" />
+
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://chosenone75.github.io/papermod-cover.png"/>
+
+<meta name="twitter:title" content="支持向量机-4-一点小Buff"/>
+<meta name="twitter:description" content="前言
+在之前的几篇文章中，我们简单介绍了 SVM 的来龙去脉，从想要最大化分类间隔出发，然后将问题整理为一个QP问题，并在这个过程中引入了 Kernel Trick，最后将整理后的原始问题的求解转化为其对应的对偶问题的求解，对偶问题仍然是一个QP问题，可以使用一些现成的工具包来求解，到这里就可以说自己已经掌握了 SVM 这个算法的核心思想了，但是不知道大家是否和我一样心里会有一点别扭的地方：由于 QP 问题的求解需要依赖工具包，貌似我不能完全从头实现一个 SVM ,除非我自己去实现一个求解 QP 问题的工具包：），而这似乎不太现实。 我记得以前看过一句话，“what I can&rsquo;t create it, I don&rsquo;t understand it.”, 所以，我们还是要坚持自己去实现它，那应该怎么办呢？很简单，QP Solver 很难实现，那咱们就换一种求解方法呗，这就是本文提到的 Sequential Minimal Optimization Algorithm(序列最小优化算法)，在下文中将其简单记为SMO，顺便说一句，在真正的 SVM 工业级实现像LIBSVM 中，往往也是采用的SMO 算法。"/>
+
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position":  1 ,
+      "name": "Posts",
+      "item": "https://chosenone75.github.io/posts/"
+    }, 
+    {
+      "@type": "ListItem",
+      "position":  2 ,
+      "name": "支持向量机-4-一点小Buff",
+      "item": "https://chosenone75.github.io/posts/2017-08-27-%E6%94%AF%E6%8C%81%E5%90%91%E9%87%8F%E6%9C%BA-4-%E4%B8%80%E7%82%B9%E5%B0%8Fbuff/"
+    }
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "支持向量机-4-一点小Buff",
+  "name": "支持向量机-4-一点小Buff",
+  "description": "前言 在之前的几篇文章中，我们简单介绍了 SVM 的来龙去脉，从想要最大化分类间隔出发，然后将问题整理为一个QP问题，并在这个过程中引入了 Kernel Trick，最后将整理后的原始问题的求解转化为其对应的对偶问题的求解，对偶问题仍然是一个QP问题，可以使用一些现成的工具包来求解，到这里就可以说自己已经掌握了 SVM 这个算法的核心思想了，但是不知道大家是否和我一样心里会有一点别扭的地方：由于 QP 问题的求解需要依赖工具包，貌似我不能完全从头实现一个 SVM ,除非我自己去实现一个求解 QP 问题的工具包：），而这似乎不太现实。 我记得以前看过一句话，“what I can\u0026rsquo;t create it, I don\u0026rsquo;t understand it.”, 所以，我们还是要坚持自己去实现它，那应该怎么办呢？很简单，QP Solver 很难实现，那咱们就换一种求解方法呗，这就是本文提到的 Sequential Minimal Optimization Algorithm(序列最小优化算法)，在下文中将其简单记为SMO，顺便说一句，在真正的 SVM 工业级实现像LIBSVM 中，往往也是采用的SMO 算法。\n",
+  "keywords": [
+    "support vector machine", "optimization", "smo", "machine learning"
+  ],
+  "articleBody": "前言 在之前的几篇文章中，我们简单介绍了 SVM 的来龙去脉，从想要最大化分类间隔出发，然后将问题整理为一个QP问题，并在这个过程中引入了 Kernel Trick，最后将整理后的原始问题的求解转化为其对应的对偶问题的求解，对偶问题仍然是一个QP问题，可以使用一些现成的工具包来求解，到这里就可以说自己已经掌握了 SVM 这个算法的核心思想了，但是不知道大家是否和我一样心里会有一点别扭的地方：由于 QP 问题的求解需要依赖工具包，貌似我不能完全从头实现一个 SVM ,除非我自己去实现一个求解 QP 问题的工具包：），而这似乎不太现实。 我记得以前看过一句话，“what I can’t create it, I don’t understand it.”, 所以，我们还是要坚持自己去实现它，那应该怎么办呢？很简单，QP Solver 很难实现，那咱们就换一种求解方法呗，这就是本文提到的 Sequential Minimal Optimization Algorithm(序列最小优化算法)，在下文中将其简单记为SMO，顺便说一句，在真正的 SVM 工业级实现像LIBSVM 中，往往也是采用的SMO 算法。\n坐标上升法 在看 SMO 之前，我们先简单地看一下另外一个有趣的算法：coordinate asent。 考虑这样的一个优化问题： $$\\max_\\alpha W(\\alpha_1,\\alpha_2,\\dots,\\alpha_m)$$ 其中，$W$ 是 $\\alpha_i$ 的函数，我们要求一个无约束的最大化问题，这里的问题仅仅是为了举例，跟 SVM算法没有任何关系。 类似于我们之前看过的一些最优化方法，像梯度下降法、牛顿法、fisher scoreing等等，这里我们采用的最优化方法就叫做coordinate asent，流程如下：\n Loop until convergence: { For i = 1,…,m, { $\\alpha_i:=\\arg\\max_{\\hat\\alpha_i}W(\\alpha_1,\\alpha_2,\\dots,\\alpha_{i-1},\\hat\\alpha_i,\\alpha_{i+1},\\dots\\alpha_m)$ } }\n 简单来说，我们在内层的 for 循环中，固定除了 $\\alpha_i$ 之外的所有参数，调整 $\\alpha_i$ 使目标函数最大，在这个例子中，我们使顺序地修改 $\\alpha_i$，与梯度下降法类似，我们也可以选定一些不同地方法使得算法更快地收敛，这里不再赘述。 coordinate asent 通常来说是一个很有效地算法，算法的实际运行效果通常如下图所示： 其中，椭圆线是我们目标函数的等值线，变量初始化为（2，-2），蓝色的线段是在 coordinate asent 的过程中，变量的取值，可以看到这些线段平行于坐标轴，这对应着我们在 for 循环中每次只优化其中的一个变量。\nBUFF - Sequential Minimal Optimization 终于到了我们的buff time, 在熟悉 coordinate asent 之后，我们来看看SMO具体是怎么工作的， 首先，我们先来回顾一下我们需要解决的问题，即SVM的对偶形式： $$\\begin{split} \\max_\\alpha \u0026W(\\alpha) = \\sum_{i=1}^m\\alpha_i - \\frac 12\\sum_{i,j=1}^m y_iy_j\\alpha_i\\alpha_jK(x_i,x_j)\\newline \u0026s.t. 0 \\leq \\alpha_i \\leq C, i=1,\\dots,m \\newline \u0026\\sum_i^m\\alpha_iy_i = 0 \\end{split}$$\n为了求解最终的 $\\alpha$, 我们需要搜寻对偶问题的可行域，寻找一个目标函数最大的可行解，似乎我们可以用 coordinate asent 来解决这个问题，我们来看看行不行。 假设我们现在手里有一组 $\\alpha_i$ 满足问题的约束条件，现在我们想对其中一个 $\\alpha_i$，不失一般性，我们取 $\\alpha_1$,做最佳化动作，同时固定其他的 $\\alpha_i$ 不动，目标函数的值会增加吗？显然不会，因为 $\\alpha_1$ 根本就不会变化，因为,根据问题的第二个约束条件以及$y_1^2 = 1$，有 $$\\alpha_1 = - y_1\\sum_{i=2}^m\\alpha_iy_i$$ 可以看到，$\\alpha_1$ 被其他的 $\\alpha_i$ 所决定，如果固定其他的 $\\alpha_i$ 不变，在约束条件的限制下，我们根本无法取得更优的结果。\n因此，为了在保证满足约束条件的前提下优化目标函数的值，我们至少需要同时更新两个 $\\alpha_i$ 的值，这就是 SMO 算法，不严谨的说，可以看作在一次循环中同时更新两个自变量的 coordinate asent，SMO算法其实是将这个大的优化问题分解成了一系列小的优化问题，然后再分别求解，算法的流程大致如下：\n 重复以下过程直至收敛{\n  选择一对 $\\alpha_i$ 和 $\\alpha_j$ 进行更新（至于具体的选择哪些 $\\alpha_i$, 会有一些启发式的方法针对性地选择使得算法会更快地收敛，下文会具体地介绍。） 2.固定其他的$\\alpha$ , 针对 $\\alpha_i$ 和 $\\alpha_j$ 进行最优化动作。 }  OK, 思路很清晰，算法流程看起来也很简单：），但是细想你就会发现几个小问题：\n 怎么判断算法是否收敛？ 怎么样保证 $\\alpha_i$ 和 $\\alpha_j$ 在优化过程中不会打破约束条件的限制？ 如何对 $\\alpha_i$ 和 $\\alpha_j$ 进行最优化动作 你可能还会有其他的问题 balabalabala…  我们一一来解决，解决了这些问题，SMO 算法也就完成了。\n如何验证算法是否收敛？ 对于这里的QP问题来说，最优解一定会满足 KKT 条件，在这个问题中，KKT条件如下： $$\\begin{split}\u0026\\alpha_i = 0 \u0026\\rightarrow \u0026y_i(w^{\\mathrm{T}}x_i + b) \\geq 1\\newline \u00260 \\leq \\alpha_i \\leq C \u0026\\rightarrow \u0026y_i(w^{\\mathrm{T}}x_i + b) = 1\\newline \u0026\\alpha_i = C \u0026\\rightarrow \u0026y_i(w^{\\mathrm{T}}x_i + b) \\leq 1 \\end{split}$$ 只要所有的 $\\alpha_i$ 在一定的 tolerance 内满足了上述KKT条件，我们就可以说算法已经收敛了。\n怎么样保证 $\\alpha_i$ 和 $\\alpha_j$ 在优化过程中不会打破约束条件的限制 我们首先来看一下 $\\alpha_i$ 和 $\\alpha_j$ 会满足怎么样的约束条件？不失一般性，为了方便表示，接下来用$\\alpha_1$ 和 $\\alpha_2$ 来替代 $\\alpha_i$ 和 $\\alpha_j$，根据第二个限制条件，由于我们固定其他的 $\\alpha_i$ 不变，我们有\n$$\\alpha_1 + \\alpha_2\\underbrace{y_1y_2}_{S}=$$\n$$\\underbrace{-y_1\\sum_{i=3}^m{\\alpha_iy_i}}_{\\zeta}=$$\n$$\\alpha_1^{old} + \\alpha_2^{old}\\underbrace{y_1y_2}_{S}$$\n这也就是说，在优化过程中 $\\alpha_1$ 和 $\\alpha_2$ 必须满足 $\\alpha_1 + \\alpha_2S = \\zeta$ 这条直线的限制，根据 $y_1,y_2$ 是否同号，分别讨论 S 的值，如下图所示： 可以看到，最后只要能够确保更新的 $\\alpha_1,\\alpha_2$ 在图中的直线上，就可以保证约束条件没有被违反。\n怎么对$\\alpha_1,\\alpha_2$ 做最佳化动作？ 首先容易想到的是，用$\\alpha_1,\\alpha_2$ 之间的等式关系： $\\alpha_1 + \\alpha_2S = \\zeta$ 消去一个变量，不失一般性，这里我们不妨消去 $\\alpha_1$，这样目标函数中就只剩 $\\alpha_2$ 了，再仔细观察，发现 $\\alpha_2$ 的最高项次数是 2，这也就是说 $W(\\alpha)$ 可以整理成 $ax^2 + bx + c$这种形式，OK，问题解决了，这种二次函数谁不会求最大值啊，初中数学水平即可，但是，别忘了，$\\alpha_2$ 的取值是有范围的，看看上面的那条直线，如果求出来的极值点$\\alpha_2$ 正好落在直线范围内还好，如果不再范围内就惨了，求出来的值没法用，还有一种更惨的情况，万一这个二次函数压根就没有最大值（退化成直线甚至开口向上）怎么办，根本就没有最大值，那又该怎么办？其实对于后面这两种情况，你动手画一些示意图就可以看到，对于极大值点不在约束范围内和没有极大值点这两种情况，此时 $W(\\alpha)$ 的最大值一定是在 $\\alpha_2$ 的左右边界之一取得，如下图所示。 可见这样话，我们只需要在实现的时候针对特殊情况比较一下边界值即可。 下面我们来整理一下上面的听起来很简单的 $ax^2 + bx + c$: 首先有： $$\\begin{split}W(\\alpha) \u0026= \\alpha_1 + \\alpha_2 + Constant - \\frac12( y_1y_1K(x_1,x_1)\\alpha_1^2+ \\newline \u0026y_2y_2K(x_2,x_2)\\alpha_2^2 + 2y_1y_2K(x_1,x_2)\\alpha_1\\alpha_2 \\newline \u0026+2(\\sum_{i=3}^n\\alpha_iy_ix_i^\\mathrm{T})(\\alpha_1y_1x_1+\\alpha_2y_2x_2+Constant))\\end{split}$$ 为了进一步简化，我们对符号作如下约定： $$K_{11} = K(x_1,x_1),K_{22} = K(x_2,x_2),K_{12} = K(x_1,x_2)$$ $$\\begin{split}v_j\u0026=\\sum_{i=3}^n\\alpha_iy_iK(x_i,x_j)\\newline\u0026=x_jw^{old} - \\alpha_1^{old}y_1K(x_1,x_j) -\\alpha_2^{old}y_2K(x_2,x_j)\\newline\u0026=u_j^{old} - b^{old} - \\alpha_1^{old}y_1K(x_1,x_j) - \\alpha_2^{old}y_2K(x_2,x_j)\\end{split}$$ 其中，$u_j^{old} = x_jw^{old} + b^{old}$ 是支持向量机在旧的参数 $w^{old}$下对 $x_j$ 所做的预测。\n重新整理一下，并用 $\\zeta - \\alpha_2S$ 替代 $\\alpha_1$现在我们有： $$\\begin{split}W(\\alpha) \u0026= \\alpha_1 + \\alpha_2 \\newline\u0026- \\frac12( K_{11}\\alpha_1^2+K_{22}\\alpha_2^2 + 2SK_{12}\\alpha_1\\alpha_2 \\newline \u0026 2y_1v_1\\alpha_1 + 2y_2v_2\\alpha_2) + Constant\\newline \u0026=\\zeta - \\alpha_2S + \\alpha_2 - \\frac 12 (K_{11}(\\zeta - \\alpha_2S)^2 \\newline \u0026 + K_{22}\\alpha_2^2 + 2SK_{12}(\\zeta - \\alpha_2S)\\alpha_2 \\newline \u0026 + 2y_1v_1(\\zeta - \\alpha_2S) + 2y_2v_2\\alpha_2 ) + Constant\\newline \\end{split} $$\n接下来，再推导五六步即可得到如下形式（没什么技巧，直接拆开化简合并就行）： $$\\begin{split}W(\\alpha) \u0026= (-\\frac12K_{11} - \\frac12K_{22} + K_{12})\\alpha_2^2 + \\newline\u0026(1 - S + SK_{11}\\zeta - SK_{12}\\zeta + y_2v_1 -y_2v_2 )\\alpha_2 + Constant \\newline \u0026= \\frac12(2K_{12} - K_{11} - K_{22})\\alpha_2^2 \\newline\u0026+ (1 - S + SK_{11}\\zeta - SK_{12}\\zeta + y_2v_1 -y_2v_2 )\\alpha_2 + Constant \\end{split}$$ 设 $\\eta = 2K_{12} - K_{11} - K_{22}$, 同时观察上式中 $ \\alpha_2$的系数,分别将 $\\zeta$ 和 $v_j$ 的定义代入： $$\\begin{split}\u0026 1 - S + SK_{11}\\zeta - SK_{12}\\zeta + y_2v_1 -y_2v_2 \\newline = \u0026 1 - S + SK_{11}(\\alpha_1^{old} + \\alpha_2^{old}S) - SK_{12}(\\alpha_1^{old} + \\alpha_2^{old}S) \\newline \u0026+ y_2(u_1^{old} - b^{old} - \\alpha_1^{old}y_1K(x_1,x_1) - \\alpha_2^{old}y_2K(x_2,x_1)) \\newline \u0026-y_2(u_2^{old} - b^{old} - \\alpha_1^{old}y_1K(x_1,x_2) - \\alpha_2^{old}y_2K(x_2,x_2))\\newline =\u0026 1- S + (K_{11} + K_{22} - 2K_{12})\\alpha_2^{old} + y_2(u_1^{old} - u_2^{old})\\newline =\u0026 y_2^2 - y_1y_2 + (K_{11} + K_{22} - 2K_{12})\\alpha_2^{old} + y_2(u_1^{old} - u_2^{old})\\newline =\u0026 y_2((u_1^{old} - y_1) - (u_2^{old} - y_2)) - \\eta\\alpha_2^{old}\\newline =\u0026y_2(E_1^{old} - E_2^{old}) - \\eta\\alpha_2^{old} \\end{split}$$ 其中，$E_i = u_i - y_i$\nOK，经过了这么多乱七八糟（其实还蛮清晰的）的式子，我们得到了 $W(\\alpha)$ 的一个简洁的表示： $$W(\\alpha) = \\frac 12 \\eta \\alpha_2^2 + (y_2(E_1^{old} - E_2^{old}) - \\eta\\alpha_2^{old})$$\n干净利索了，我们来求最大值吧，首先求一阶导数和二阶导数。 $$\\frac{\\mathrm{d}W(\\alpha)}{\\mathrm{d}\\alpha_2} = \\eta\\alpha_2 + (y_2(E_1^{old} - E_2^{old}) - \\eta\\alpha_2^{old})\\newline \\frac{\\mathrm{d}^2W(\\alpha)}{\\mathrm{d}\\alpha_2^2} = \\eta$$\n注意到，$\\eta = 2K_{12} - K_{11} - K_{22} \\leq 0$, 因为 $$\\begin{split} \u0026 2K_{12} - K_{11} - K_{22} \\newline =\u00262\\phi(x_1)^{\\mathrm{T}}\\phi(x_2) - \\phi(x_1)^{\\mathrm{T}}\\phi(x_1) - \\phi(x_2)^{\\mathrm{T}}\\phi(x_2) \\newline =\u0026-(\\phi(x_2) - \\phi(x_1))^2 \\newline \\end{split} $$\n令 $\\frac{\\mathrm{d}W(\\alpha)}{\\mathrm{d}\\alpha_2} = 0$, 我们有 $$ \\alpha_2^{new} = \\alpha_2^{old} + \\frac{y_2(E_2^{old} - E_1^{old})}{\\eta} $$\n如果 $\\eta 当 $y_1,y_2$ 同号即 $ S=1$ 时，根据此时直线的方向，$\\alpha_2$ 的取值范围是 $(\\max(0,\\zeta - C),\\min(C,\\zeta))$,具体来说，当 $\\zeta  C$ 时，$\\alpha_2 \\in (\\zeta -C,C)$;当 $\\zeta  当 $y_1,y_2$ 异号即 $ S=-1$ 时，根据此时直线的方向，$\\alpha_2$ 的取值范围是 $(\\max(0,-\\zeta),\\min(C,C - \\zeta))$,具体来说，当 $\\zeta  0$ 时，$\\alpha_2 \\in (0,C - \\zeta)$;当 $\\zeta   总之，根据对应的条件求出 $\\alpha_2$ 的上下界，我们记为 $L，H$后，我们需要将求的无约束下的最优值 $\\alpha_2^{new}$ 与 $L，H$ 进行比较以使得最终的解满足约束条件，我们有如下讨论：\n 如果 $\\alpha_2^{new}  H$,此时可以验证 对于开口向下的目标二次函数会在 $H$ 处取得最大值。 如果 $L 如果 $\\alpha_2^{new}  总的来说，我们需要对 $\\alpha_2^{new}$ 作如下的裁剪操作： $$\\alpha_2^{new} = \\begin{cases}H, when \\ \\alpha_2^{new}  H\\newline \\alpha_2^{new}, when \\ L以上讨论的这些大多数时候都是成立的，但是也有$\\eta = 0$ 的情况存在，比如混入了相同的训练样本，此时，目标函数直接退化成了一条直线，最大值肯定是在区间的断点处取得，我们只需要将 $L,H$分别带入将 $\\alpha_2^{new}$ 设为目标函数较大的那个端点即可。\n得到 $\\alpha_2^{new}$ 后，我们最后根据 $\\alpha_1 + \\alpha_2S = \\zeta$ 来更新 $\\alpha_1$, 有 $$\\alpha_1^{new} = \\alpha_1^{old} - S(\\alpha_2^{new} - \\alpha_2^{old})$$ 由此，我们完成了对参数 $\\alpha$ 的更新。\n此外，每一步中，我们都要更新参数 $b$, 其中更新的公式为： $$b_1 = b^{old} - E_1 + y_1(\\alpha_1^{old} - \\alpha_1^{new})K_{11}+y_2(\\alpha_2^{old} - \\alpha_2^{new})K_{12} \\newline b_2 = b^{old} - E_2 + y_1(\\alpha_1^{old} - \\alpha_1^{new})K_{12}+y_2(\\alpha_2^{old} - \\alpha_2^{new})K_{22}$$\n上述两个等式是通过KKT条件推出来的，注意此时可以看作仅有 $\\alpha_1,\\alpha_2$ 两个变量的二次规划问题，对于不在边界上的 $\\alpha, \\ \\ i.e. 0如果$\\alpha_1,\\alpha_2$有且仅有一个不在边界上，就用对应的$b$进行更新。 如果$\\alpha_1,\\alpha_2$都不在边界上，随意一个 $b$ 值都可以进行更新。 如果$\\alpha_1,\\alpha_2$都在边界上，$b_1$ 与 $b_2$ 之间的任意 值都可以进行更新。  第一点非常好理解，第二点是因为在都满足KKT条件的情况下，b值应该是唯一的，关于第三点我一直都有疑问，在这里尝试说一下我的想法, 想法非常地 trivial: 分两种情况讨论\n 因为$\\alpha_1,\\alpha_2$都在边界上，假设$\\alpha_1,\\alpha_2$的值相同，这也就是说 $\\alpha_1,\\alpha_2$ 在刚刚的那一轮更新中一定是同增（对应值为C）或者同减(对应值为0)，如若不然，那么在之前的更新中必然已经出现了违反约束的情况，而我们实际上进行了裁剪，所以这种情况不存在，此时同增同减意味着，$y_1,y_2$异号，这样的话，由于上述计算 $b$ 的公式 是从$y_i(w^{\\mathrm{T}}x_i + b) = 1$的条件下推出的，此时在边界上需要满足的是不等关系，解对应的两个不等式，由于$y_1,y_2$异号,这样合理的 $b$ 一定在 $b_1,b_2$之间。 与1） 类似，$\\alpha_1,\\alpha_2$ 的值如果不同的话，那么$y_1,y_2$则一定同号，同样的，合理的 $b$ 一定在 $b_1,b_2$之间。  如何选择待更新的$\\alpha_1,\\alpha_2$ to be continued。。。\nSMO的一个简单实现 下面是一个简化版的SMO-SVM实现，有很多方面没有照顾到，后续会再实现一个较为完整的版本，此处仅用作展示算法流程。\n#!/usr/bin/env python # encoding: utf-8 \"\"\" @author: lebronran @site: https://chosenone75.github.io @time: 2017/8/29 0029 19:04 \"\"\" from __future__ import print_function from __future__ import division import numpy as np import re import time # helper function for the implement of simplified SMO algorithm def loadDataSet(filename): examples = [] labels = [] with open(filename,\"rb\") as f: for line in f: nums = re.split(\"\\s+\",line.strip()) examples.append([float(nums[0]),float(nums[1])]) labels.append(float(nums[2])) return np.array(examples),np.array(labels) def selectJRand(i,m): j = i while j == i: j = int(np.random.uniform(0,m)) return j def clipAlpha(alpha_new,H,L): if alpha_new  H: alpha_new = H elif alpha_new  L: alpha_new = L return alpha_new def simpleSMO(training_x,training_y,C,toler,maxiter=100): ''' :param training_x: training set of example :param training_y: the class labels of training examples :param C: the factor tradeoff between accuracy and margin :param toler: a small number for numbericl stablity, typically 0.001 :param maxiter: the number of the iteration :return: weight, bias ''' examples = np.matrix(training_x) labels = np.matrix(training_y).transpose() b = 0 m,n = np.shape(examples) alphas = np.matrix(np.zeros(shape=(m,1))) iter = 0 while iter  maxiter: numChanged = 0 for i in range(m): fXi = float(np.multiply(alphas,labels).T * (examples * examples[i,:].T) + b) Ei = fXi - float(labels[i]) if (labels[i] * Ei  -toler and alphas[i]  C) or ( labels[i] * Ei  toler and alphas[i]  0): j = selectJRand(i,m) # so-called the simplified SMO fXj = float(np.multiply(alphas, labels).T * (examples * examples[j, :].T) + b) Ej = fXj - float(labels[j]) alpha_i_old = alphas[i].copy() alpha_j_old = alphas[j].copy() if labels[i] != labels[j]: L = max(0,alphas[j] - alphas[i]) H = min(C,C+alphas[j]-alphas[i]) else: L = max(0,alphas[i] + alphas[j] - C) H = min(C,alphas[i] + alphas[j]) if L == H: print(\"L==H\");continue eta = 2.0 * examples[i,:] * examples[j,:].T - \\ examples[i, :] * examples[i, :].T - \\ examples[j,:] * examples[j,:].T if eta = 0: print(\"eta is greater than zero,just move on here\");continue alphas[j] -= labels[j] * (Ei - Ej) / eta alphas[j] = clipAlpha(alphas[j],H,L) if abs(alphas[j] - alpha_j_old)  0.0001: print(\"the step size is not enough, just move on here\") continue alphas[i] += labels[i] * labels[j] * (alpha_j_old - alphas[j]) b1 = b - Ei - labels[i]*(alphas[i] - alpha_i_old)\\ *examples[i, :] * examples[i, :].T \\ - labels[j]*(alphas[j] - alpha_j_old) \\ *examples[i, :] * examples[j, :].T b2 = b - Ej - labels[i] * (alphas[i] - alpha_i_old) \\ * examples[i, :] * examples[j, :].T \\ - labels[j] * (alphas[j] - alpha_j_old) \\ * examples[j, :] * examples[j, :].T # update the bias if alphas[i]  0 and alphas[i]  C: b = b1 elif alphas[j]  0 and alphas[j]  C: b = b2 else: b = (b1 + b2) / 2 numChanged += 1 print(\"iter : %d, i: %d, %dpairs changed\" % (iter,i,numChanged)) if numChanged == 0: iter += 1 else: iter = 0 print(\"iternum: %d.\" % iter) return b,alphas training_x,training_y = loadDataSet(\"data/testSet.txt\") begin = time.time() b,alphas = simpleSMO(training_x,training_y,0.6,0.001,40) end = time.time() print(\"The time costed totally : %ds.\" % (end - begin)) print(b) print(alphas[alphas0]) 参考资料 还有几个比较好的英文资料，但出处没有找到，请自行google keerthi-svm sequential-minimal-optimization-a-fast-algorithm-for-training-support-vector-machines\n",
+  "wordCount" : "1325",
+  "inLanguage": "en",
+  "datePublished": "2017-08-27T11:08:41Z",
+  "dateModified": "2017-08-27T11:08:41Z",
+  "author":{
+    "@type": "Person",
+    "name": "Xiangying Ran"
+  },
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "https://chosenone75.github.io/posts/2017-08-27-%E6%94%AF%E6%8C%81%E5%90%91%E9%87%8F%E6%9C%BA-4-%E4%B8%80%E7%82%B9%E5%B0%8Fbuff/"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Ran's Blog",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://chosenone75.github.io/favicon.ico"
+    }
+  }
+}
+</script>
+</head>
+
+<body class="" id="top">
+<script>
+    if (localStorage.getItem("pref-theme") === "dark") {
+        document.body.classList.add('dark');
+    } else if (localStorage.getItem("pref-theme") === "light") {
+        document.body.classList.remove('dark')
+    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.body.classList.add('dark');
+    }
+
+</script>
+
+<header class="header">
+    <nav class="nav">
+        <div class="logo">
+            <a href="https://chosenone75.github.io/" accesskey="h" title="Ran&#39;s Blog (Alt + H)">Ran&#39;s Blog</a>
+            <span class="logo-switches">
+                <button id="theme-toggle" accesskey="t" title="(Alt + T)">
+                    <svg id="moon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                    <svg id="sun" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="5"></circle>
+                        <line x1="12" y1="1" x2="12" y2="3"></line>
+                        <line x1="12" y1="21" x2="12" y2="23"></line>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                        <line x1="1" y1="12" x2="3" y2="12"></line>
+                        <line x1="21" y1="12" x2="23" y2="12"></line>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                    </svg>
+                </button>
+            </span>
+        </div>
+        <ul id="menu">
+            <li>
+                <a href="https://chosenone75.github.io/archives" title="Archive">
+                    <span>Archive</span>
+                </a>
+            </li>
+            <li>
+                <a href="https://chosenone75.github.io/search/" title="Search (Alt &#43; /)" accesskey=/>
+                    <span>Search</span>
+                </a>
+            </li>
+            <li>
+                <a href="https://chosenone75.github.io/tags/" title="Tags">
+                    <span>Tags</span>
+                </a>
+            </li>
+            <li>
+                <a href="https://chosenone75.github.io/categories/" title="Categories">
+                    <span>Categories</span>
+                </a>
+            </li>
+            <li>
+                <a href="https://chosenone75.github.io/about/" title="About">
+                    <span>About</span>
+                </a>
+            </li>
+        </ul>
+    </nav>
+</header>
+<main class="main">
+
+<article class="post-single">
+  <header class="post-header">
+    <div class="breadcrumbs"><a href="https://chosenone75.github.io/">Home</a>&nbsp;»&nbsp;<a href="https://chosenone75.github.io/posts/">Posts</a></div>
+    <h1 class="post-title">
+      支持向量机-4-一点小Buff
+    </h1>
+    <div class="post-meta"><span title='2017-08-27 11:08:41 +0000 UTC'>August 27, 2017</span>&nbsp;·&nbsp;7 min&nbsp;·&nbsp;Xiangying Ran
+
+</div>
+  </header> <div class="toc">
+    <details >
+        <summary accesskey="c" title="(Alt + C)">
+            <span class="details">Table of Contents</span>
+        </summary>
+
+        <div class="inner"><ul>
+                <li>
+                    <a href="#%e5%89%8d%e8%a8%80" aria-label="前言">前言</a></li>
+                <li>
+                    <a href="#%e5%9d%90%e6%a0%87%e4%b8%8a%e5%8d%87%e6%b3%95" aria-label="坐标上升法">坐标上升法</a></li>
+                <li>
+                    <a href="#buff---sequential-minimal-optimization" aria-label="BUFF - Sequential Minimal Optimization">BUFF - Sequential Minimal Optimization</a><ul>
+                        
+                <li>
+                    <a href="#%e5%a6%82%e4%bd%95%e9%aa%8c%e8%af%81%e7%ae%97%e6%b3%95%e6%98%af%e5%90%a6%e6%94%b6%e6%95%9b" aria-label="如何验证算法是否收敛？">如何验证算法是否收敛？</a></li>
+                <li>
+                    <a href="#%e6%80%8e%e4%b9%88%e6%a0%b7%e4%bf%9d%e8%af%81-alpha_i-%e5%92%8c-alpha_j-%e5%9c%a8%e4%bc%98%e5%8c%96%e8%bf%87%e7%a8%8b%e4%b8%ad%e4%b8%8d%e4%bc%9a%e6%89%93%e7%a0%b4%e7%ba%a6%e6%9d%9f%e6%9d%a1%e4%bb%b6%e7%9a%84%e9%99%90%e5%88%b6" aria-label="怎么样保证 $\alpha_i$ 和 $\alpha_j$ 在优化过程中不会打破约束条件的限制">怎么样保证 $\alpha_i$ 和 $\alpha_j$ 在优化过程中不会打破约束条件的限制</a></li>
+                <li>
+                    <a href="#%e6%80%8e%e4%b9%88%e5%af%b9alpha_1alpha_2-%e5%81%9a%e6%9c%80%e4%bd%b3%e5%8c%96%e5%8a%a8%e4%bd%9c" aria-label="怎么对$\alpha_1,\alpha_2$ 做最佳化动作？">怎么对$\alpha_1,\alpha_2$ 做最佳化动作？</a></li>
+                <li>
+                    <a href="#%e5%a6%82%e4%bd%95%e9%80%89%e6%8b%a9%e5%be%85%e6%9b%b4%e6%96%b0%e7%9a%84alpha_1alpha_2" aria-label="如何选择待更新的$\alpha_1,\alpha_2$">如何选择待更新的$\alpha_1,\alpha_2$</a></li></ul>
+                </li>
+                <li>
+                    <a href="#smo%e7%9a%84%e4%b8%80%e4%b8%aa%e7%ae%80%e5%8d%95%e5%ae%9e%e7%8e%b0" aria-label="SMO的一个简单实现">SMO的一个简单实现</a></li>
+                <li>
+                    <a href="#%e5%8f%82%e8%80%83%e8%b5%84%e6%96%99" aria-label="参考资料">参考资料</a>
+                </li>
+            </ul>
+        </div>
+    </details>
+</div>
+
+  <div class="post-content"><h2 id="前言">前言<a hidden class="anchor" aria-hidden="true" href="#前言">#</a></h2>
+<p>在之前的几篇文章中，我们简单介绍了 <em>SVM</em> 的来龙去脉，从想要最大化分类间隔出发，然后将问题整理为一个QP问题，并在这个过程中引入了 <em>Kernel Trick</em>，最后将整理后的原始问题的求解转化为其对应的对偶问题的求解，对偶问题仍然是一个QP问题，可以使用一些现成的工具包来求解，到这里就可以说自己已经掌握了 <em>SVM</em> 这个算法的核心思想了，但是不知道大家是否和我一样心里会有一点别扭的地方：由于 <em>QP</em> 问题的求解需要依赖工具包，貌似我不能完全从头实现一个 <em>SVM</em> ,除非我自己去实现一个求解 <em>QP</em> 问题的工具包：），而这似乎不太现实。 我记得以前看过一句话，“what I can&rsquo;t create it, I don&rsquo;t understand it.”, 所以，我们还是要坚持自己去实现它，那应该怎么办呢？很简单，<em>QP Solver</em> 很难实现，那咱们就换一种求解方法呗，这就是本文提到的 <em><strong>Sequential Minimal Optimization Algorithm</strong></em>(序列最小优化算法)，在下文中将其简单记为<em><strong>SMO</strong></em>，顺便说一句，在真正的 <em>SVM</em> 工业级实现像LIBSVM 中，往往也是采用的<em>SMO</em> 算法。</p>
+<h2 id="坐标上升法">坐标上升法<a hidden class="anchor" aria-hidden="true" href="#坐标上升法">#</a></h2>
+<p>在看 <em>SMO</em> 之前，我们先简单地看一下另外一个有趣的算法：<em><strong>coordinate asent</strong></em>。
+考虑这样的一个优化问题：
+$$\max_\alpha W(\alpha_1,\alpha_2,\dots,\alpha_m)$$
+其中，$W$ 是 $\alpha_i$ 的函数，我们要求一个无约束的最大化问题，这里的问题仅仅是为了举例，跟 <em>SVM</em>算法<strong>没有</strong>任何关系。
+类似于我们之前看过的一些最优化方法，像梯度下降法、牛顿法、fisher scoreing等等，这里我们采用的最优化方法就叫做<em><strong>coordinate asent</strong></em>，流程如下：</p>
+<blockquote>
+<p>Loop until convergence: {
+For i = 1,&hellip;,m, {
+$\alpha_i:=\arg\max_{\hat\alpha_i}W(\alpha_1,\alpha_2,\dots,\alpha_{i-1},\hat\alpha_i,\alpha_{i+1},\dots\alpha_m)$
+}
+}</p>
+</blockquote>
+<p>简单来说，我们在内层的 <code>for</code> 循环中，固定除了 $\alpha_i$ 之外的所有参数，调整 $\alpha_i$ 使目标函数最大，在这个例子中，我们使顺序地修改 $\alpha_i$，与梯度下降法类似，我们也可以选定一些不同地方法使得算法更快地收敛，这里不再赘述。
+<em>coordinate asent</em> 通常来说是一个很有效地算法，算法的实际运行效果通常如下图所示：
+<img loading="lazy" src="/images/svm/ca.png" alt="此处输入图片的描述"  />
+
+其中，椭圆线是我们目标函数的等值线，变量初始化为（2，-2），蓝色的线段是在 <em>coordinate asent</em> 的过程中，变量的取值，可以看到这些线段平行于坐标轴，这对应着我们在 <code>for</code> 循环中每次只优化其中的一个变量。</p>
+<h2 id="buff---sequential-minimal-optimization">BUFF - Sequential Minimal Optimization<a hidden class="anchor" aria-hidden="true" href="#buff---sequential-minimal-optimization">#</a></h2>
+<p>终于到了我们的buff time, 在熟悉 <em>coordinate asent</em> 之后，我们来看看SMO具体是怎么工作的，
+首先，我们先来回顾一下我们需要解决的问题，即SVM的对偶形式：
+$$\begin{split}
+\max_\alpha &amp;W(\alpha) = \sum_{i=1}^m\alpha_i - \frac 12\sum_{i,j=1}^m y_iy_j\alpha_i\alpha_jK(x_i,x_j)\newline
+&amp;s.t. 0 \leq \alpha_i \leq C, i=1,\dots,m \newline
+&amp;\sum_i^m\alpha_iy_i = 0
+\end{split}$$</p>
+<p>为了求解最终的 $\alpha$, 我们需要搜寻对偶问题的可行域，寻找一个目标函数最大的可行解，似乎我们可以用 <em>coordinate asent</em> 来解决这个问题，我们来看看行不行。
+假设我们现在手里有一组 $\alpha_i$ 满足问题的约束条件，现在我们想对其中一个 $\alpha_i$，不失一般性，我们取 $\alpha_1$,做最佳化动作，同时固定其他的 $\alpha_i$ 不动，目标函数的值会增加吗？显然不会，因为 $\alpha_1$ 根本就不会变化，因为,根据问题的第二个约束条件以及$y_1^2 = 1$，有
+$$\alpha_1 = - y_1\sum_{i=2}^m\alpha_iy_i$$
+可以看到，$\alpha_1$ 被其他的 $\alpha_i$ 所决定，如果固定其他的 $\alpha_i$ 不变，在约束条件的限制下，我们根本无法取得更优的结果。</p>
+<p>因此，为了在保证满足约束条件的前提下优化目标函数的值，我们<strong>至少</strong>需要同时更新<strong>两个</strong> $\alpha_i$ 的值，这就是 <strong>SMO</strong> 算法，不严谨的说，可以看作在一次循环中同时更新两个自变量的 <em>coordinate asent</em>，SMO算法其实是将这个大的优化问题分解成了一系列小的优化问题，然后再分别求解，算法的流程大致如下：</p>
+<blockquote>
+<p>重复以下过程直至收敛{</p>
+</blockquote>
+<ol>
+<li>选择一对 $\alpha_i$ 和 $\alpha_j$ 进行更新（至于具体的选择哪些 $\alpha_i$, 会有一些启发式的方法针对性地选择使得算法会更快地收敛，下文会具体地介绍。）
+2.固定其他的$\alpha$ , 针对 $\alpha_i$ 和 $\alpha_j$ 进行最优化动作。
+}</li>
+</ol>
+<p>OK, 思路很清晰，算法流程看起来也很简单：），但是细想你就会发现几个小问题：</p>
+<ol>
+<li>怎么判断算法是否收敛？</li>
+<li>怎么样保证 $\alpha_i$ 和 $\alpha_j$ 在优化过程中不会打破约束条件的限制？</li>
+<li>如何对 $\alpha_i$ 和 $\alpha_j$ 进行最优化动作</li>
+<li>你可能还会有其他的问题 balabalabala&hellip;</li>
+</ol>
+<p>我们一一来解决，解决了这些问题，<em>SMO</em> 算法也就完成了。</p>
+<h3 id="如何验证算法是否收敛">如何验证算法是否收敛？<a hidden class="anchor" aria-hidden="true" href="#如何验证算法是否收敛">#</a></h3>
+<p>对于这里的QP问题来说，最优解一定会满足 <strong>KKT</strong> 条件，在这个问题中，KKT条件如下：
+$$\begin{split}&amp;\alpha_i = 0 &amp;\rightarrow &amp;y_i(w^{\mathrm{T}}x_i + b) \geq 1\newline
+&amp;0 \leq \alpha_i \leq C &amp;\rightarrow &amp;y_i(w^{\mathrm{T}}x_i + b) = 1\newline
+&amp;\alpha_i = C &amp;\rightarrow &amp;y_i(w^{\mathrm{T}}x_i + b) \leq 1
+\end{split}$$
+只要所有的 $\alpha_i$ 在一定的 tolerance 内满足了上述KKT条件，我们就可以说算法已经收敛了。</p>
+<h3 id="怎么样保证-alpha_i-和-alpha_j-在优化过程中不会打破约束条件的限制">怎么样保证 $\alpha_i$ 和 $\alpha_j$ 在优化过程中不会打破约束条件的限制<a hidden class="anchor" aria-hidden="true" href="#怎么样保证-alpha_i-和-alpha_j-在优化过程中不会打破约束条件的限制">#</a></h3>
+<p>我们首先来看一下 $\alpha_i$ 和 $\alpha_j$ 会满足怎么样的约束条件？不失一般性，为了方便表示，接下来用$\alpha_1$ 和 $\alpha_2$ 来替代 $\alpha_i$ 和 $\alpha_j$，根据第二个限制条件，由于我们固定其他的 $\alpha_i$ 不变，我们有</p>
+<p>$$\alpha_1 + \alpha_2\underbrace{y_1y_2}_{S}=$$</p>
+<p>$$\underbrace{-y_1\sum_{i=3}^m{\alpha_iy_i}}_{\zeta}=$$</p>
+<p>$$\alpha_1^{old} + \alpha_2^{old}\underbrace{y_1y_2}_{S}$$</p>
+<p>这也就是说，在优化过程中 $\alpha_1$ 和 $\alpha_2$ 必须满足 $\alpha_1 + \alpha_2S = \zeta$ 这条直线的限制，根据 $y_1,y_2$ 是否同号，分别讨论 <em>S</em> 的值，如下图所示：
+<img loading="lazy" src="/images/svm/condition.png" alt="此处输入图片的描述"  />
+
+可以看到，最后只要能够确保更新的 $\alpha_1,\alpha_2$ 在图中的直线上，就可以保证约束条件没有被违反。</p>
+<h3 id="怎么对alpha_1alpha_2-做最佳化动作">怎么对$\alpha_1,\alpha_2$ 做最佳化动作？<a hidden class="anchor" aria-hidden="true" href="#怎么对alpha_1alpha_2-做最佳化动作">#</a></h3>
+<p>首先容易想到的是，用$\alpha_1,\alpha_2$ 之间的等式关系： $\alpha_1 + \alpha_2S = \zeta$  消去一个变量，不失一般性，这里我们不妨消去 $\alpha_1$，这样目标函数中就只剩 $\alpha_2$ 了，再仔细观察，发现 $\alpha_2$ 的最高项次数是 <strong>2</strong>，这也就是说 $W(\alpha)$ 可以整理成 $ax^2 + bx + c$这种形式，OK，问题解决了，这种二次函数谁不会求最大值啊，初中数学水平即可，但是，别忘了，$\alpha_2$ 的取值是有范围的，看看上面的那条直线，如果求出来的极值点$\alpha_2$ 正好落在直线范围内还好，如果不再范围内就惨了，求出来的值没法用，还有一种更惨的情况，万一这个二次函数压根就没有最大值（退化成直线甚至开口向上）怎么办，根本就没有最大值，那又该怎么办？其实对于后面这两种情况，你动手画一些示意图就可以看到，对于极大值点不在约束范围内和没有极大值点这两种情况，此时 $W(\alpha)$ 的最大值一定是在 $\alpha_2$ 的左右边界之一取得，如下图所示。
+可见这样话，我们只需要在实现的时候针对特殊情况比较一下边界值即可。
+下面我们来整理一下上面的听起来很简单的 $ax^2 + bx + c$:
+首先有：
+$$\begin{split}W(\alpha) &amp;= \alpha_1 + \alpha_2 + Constant - \frac12(
+y_1y_1K(x_1,x_1)\alpha_1^2+ \newline &amp;y_2y_2K(x_2,x_2)\alpha_2^2 + 2y_1y_2K(x_1,x_2)\alpha_1\alpha_2 \newline
+&amp;+2(\sum_{i=3}^n\alpha_iy_ix_i^\mathrm{T})(\alpha_1y_1x_1+\alpha_2y_2x_2+Constant))\end{split}$$
+为了进一步简化，我们对符号作如下约定：
+$$K_{11} = K(x_1,x_1),K_{22} = K(x_2,x_2),K_{12} = K(x_1,x_2)$$
+$$\begin{split}v_j&amp;=\sum_{i=3}^n\alpha_iy_iK(x_i,x_j)\newline&amp;=x_jw^{old} - \alpha_1^{old}y_1K(x_1,x_j) -\alpha_2^{old}y_2K(x_2,x_j)\newline&amp;=u_j^{old} - b^{old} - \alpha_1^{old}y_1K(x_1,x_j) - \alpha_2^{old}y_2K(x_2,x_j)\end{split}$$
+其中，$u_j^{old} = x_jw^{old} + b^{old}$ 是支持向量机在旧的参数 $w^{old}$下对 $x_j$ 所做的预测。</p>
+<p>重新整理一下，并用 $\zeta - \alpha_2S$ 替代 $\alpha_1$现在我们有：
+$$\begin{split}W(\alpha) &amp;= \alpha_1 + \alpha_2  \newline&amp;- \frac12(
+K_{11}\alpha_1^2+K_{22}\alpha_2^2 + 2SK_{12}\alpha_1\alpha_2 \newline
+&amp; 2y_1v_1\alpha_1 + 2y_2v_2\alpha_2) + Constant\newline
+&amp;=\zeta - \alpha_2S + \alpha_2 - \frac 12 (K_{11}(\zeta - \alpha_2S)^2 \newline &amp; +  K_{22}\alpha_2^2 + 2SK_{12}(\zeta - \alpha_2S)\alpha_2 \newline &amp; + 2y_1v_1(\zeta - \alpha_2S) + 2y_2v_2\alpha_2 ) + Constant\newline
+\end{split} $$</p>
+<p>接下来，再推导五六步即可得到如下形式（没什么技巧，直接拆开化简合并就行）：
+$$\begin{split}W(\alpha) &amp;= (-\frac12K_{11} - \frac12K_{22} + K_{12})\alpha_2^2 + \newline&amp;(1 - S + SK_{11}\zeta - SK_{12}\zeta + y_2v_1 -y_2v_2 )\alpha_2 + Constant \newline
+&amp;= \frac12(2K_{12} - K_{11} - K_{22})\alpha_2^2 \newline&amp;+ (1 - S + SK_{11}\zeta - SK_{12}\zeta + y_2v_1 -y_2v_2 )\alpha_2 + Constant \end{split}$$
+设 $\eta = 2K_{12} - K_{11} - K_{22}$, 同时观察上式中 $
+\alpha_2$的系数,分别将 $\zeta$ 和 $v_j$ 的定义代入：
+$$\begin{split}&amp; 1 - S + SK_{11}\zeta - SK_{12}\zeta + y_2v_1 -y_2v_2 \newline
+= &amp; 1 - S + SK_{11}(\alpha_1^{old} + \alpha_2^{old}S) - SK_{12}(\alpha_1^{old} + \alpha_2^{old}S) \newline
+&amp;+ y_2(u_1^{old} - b^{old} - \alpha_1^{old}y_1K(x_1,x_1) - \alpha_2^{old}y_2K(x_2,x_1)) \newline &amp;-y_2(u_2^{old} - b^{old} - \alpha_1^{old}y_1K(x_1,x_2) - \alpha_2^{old}y_2K(x_2,x_2))\newline
+=&amp; 1- S + (K_{11} + K_{22} - 2K_{12})\alpha_2^{old} + y_2(u_1^{old} - u_2^{old})\newline
+=&amp; y_2^2 - y_1y_2 + (K_{11} + K_{22} - 2K_{12})\alpha_2^{old} + y_2(u_1^{old} - u_2^{old})\newline
+=&amp; y_2((u_1^{old} - y_1) - (u_2^{old} - y_2)) - \eta\alpha_2^{old}\newline
+=&amp;y_2(E_1^{old} - E_2^{old}) - \eta\alpha_2^{old}
+\end{split}$$
+其中，$E_i = u_i - y_i$</p>
+<p>OK，经过了这么多乱七八糟（其实还蛮清晰的）的式子，我们得到了 $W(\alpha)$ 的一个简洁的表示：
+$$W(\alpha) = \frac 12 \eta \alpha_2^2 + (y_2(E_1^{old} - E_2^{old}) - \eta\alpha_2^{old})$$</p>
+<p>干净利索了，我们来求最大值吧，首先求一阶导数和二阶导数。
+$$\frac{\mathrm{d}W(\alpha)}{\mathrm{d}\alpha_2} = \eta\alpha_2 + (y_2(E_1^{old} - E_2^{old}) - \eta\alpha_2^{old})\newline
+\frac{\mathrm{d}^2W(\alpha)}{\mathrm{d}\alpha_2^2} = \eta$$</p>
+<p>注意到，$\eta = 2K_{12} - K_{11} - K_{22} \leq 0$, 因为
+$$\begin{split} &amp; 2K_{12} - K_{11} - K_{22} \newline
+=&amp;2\phi(x_1)^{\mathrm{T}}\phi(x_2) - \phi(x_1)^{\mathrm{T}}\phi(x_1) - \phi(x_2)^{\mathrm{T}}\phi(x_2) \newline
+=&amp;-(\phi(x_2) - \phi(x_1))^2 \newline \end{split} $$</p>
+<p>令 $\frac{\mathrm{d}W(\alpha)}{\mathrm{d}\alpha_2} = 0$, 我们有
+$$ \alpha_2^{new} = \alpha_2^{old} +  \frac{y_2(E_2^{old} - E_1^{old})}{\eta} $$</p>
+<p>如果 $\eta &lt; 0$, 那么 $\alpha_2^{new}$ 就是极值点，但是我们还不知道这个极值点是否会满足我们的约束条件，我们需要求出 $\alpha_2$ 的取值范围再来讨论，$\alpha_2$ 的范围如下：</p>
+<ol>
+<li>当 $y_1,y_2$ 同号即 $ S=1$ 时，根据此时直线的方向，$\alpha_2$ 的取值范围是 $(\max(0,\zeta - C),\min(C,\zeta))$,具体来说，当 $\zeta &gt; C$ 时，$\alpha_2 \in (\zeta -C,C)$;当 $\zeta &lt; C$ 时，$\alpha_2 \in (0,\zeta)$,这些情况如下图所示：<img loading="lazy" src="/images/svm/yes.png" alt="此处输入图片的描述"  />
+</li>
+<li>当 $y_1,y_2$ 异号即 $ S=-1$ 时，根据此时直线的方向，$\alpha_2$ 的取值范围是 $(\max(0,-\zeta),\min(C,C - \zeta))$,具体来说，当 $\zeta &gt; 0$ 时，$\alpha_2 \in (0,C - \zeta)$;当 $\zeta &lt; 0$ 时，$\alpha_2 \in (-\zeta,C)$,此时情况如下图所示：<img loading="lazy" src="/images/svm/no.png" alt="此处输入图片的描述"  />
+</li>
+</ol>
+<p>总之，根据对应的条件求出 $\alpha_2$ 的上下界，我们记为 $L，H$后，我们需要将求的无约束下的最优值 $\alpha_2^{new}$ 与 $L，H$ 进行比较以使得最终的解满足约束条件，我们有如下讨论：</p>
+<ol>
+<li>如果 $\alpha_2^{new} &gt; H$,此时可以验证 对于开口向下的目标二次函数会在 $H$ 处取得最大值。</li>
+<li>如果 $L &lt;\alpha_2^{new} &lt; H$,  此时满足条件。</li>
+<li>如果 $\alpha_2^{new} &lt; L$,此时可以验证 对于开口向下的目标二次函数会在 $L$ 处取得最大值。</li>
+</ol>
+<p>总的来说，我们需要对 $\alpha_2^{new}$ 作如下的裁剪操作：
+$$\alpha_2^{new} = \begin{cases}H, when \ \alpha_2^{new} &gt; H\newline \alpha_2^{new}, when \ L&lt;\alpha_2^{new} &lt; H\newline L, when \ \alpha_2^{new} &lt; L \end{cases}$$</p>
+<p>以上讨论的这些大多数时候都是成立的，但是也有$\eta = 0$ 的情况存在，比如混入了相同的训练样本，此时，目标函数直接退化成了一条直线，最大值肯定是在区间的断点处取得，我们只需要将 $L,H$分别带入将 $\alpha_2^{new}$ 设为目标函数较大的那个端点即可。</p>
+<p>得到 $\alpha_2^{new}$ 后，我们最后根据 $\alpha_1 + \alpha_2S = \zeta$ 来更新 $\alpha_1$, 有
+$$\alpha_1^{new} = \alpha_1^{old} - S(\alpha_2^{new} - \alpha_2^{old})$$
+由此，我们完成了对参数 $\alpha$ 的更新。</p>
+<p>此外，每一步中，我们都要更新参数 $b$, 其中更新的公式为：
+$$b_1 = b^{old} - E_1 + y_1(\alpha_1^{old} - \alpha_1^{new})K_{11}+y_2(\alpha_2^{old} - \alpha_2^{new})K_{12} \newline
+b_2 = b^{old} - E_2 + y_1(\alpha_1^{old} - \alpha_1^{new})K_{12}+y_2(\alpha_2^{old} - \alpha_2^{new})K_{22}$$</p>
+<p>上述两个等式是通过KKT条件推出来的，注意此时可以看作仅有 $\alpha_1,\alpha_2$ 两个变量的二次规划问题，对于不在边界上的 $\alpha, \ \ i.e. 0&lt;\alpha&lt;C,$ 根据KKT条件有 $y_i(w^{\mathrm{T}}x_i + b) = 1$,由此可以推出 $b$ 的值, 上述两个等式就是$\alpha_1,\alpha_2$ 分别不在边界上时所求出的对应的 $b$ 值。
+那我们应该选哪个来更新 $b$ 呢？</p>
+<ol>
+<li>如果$\alpha_1,\alpha_2$有且仅有一个不在边界上，就用对应的$b$进行更新。</li>
+<li>如果$\alpha_1,\alpha_2$都不在边界上，随意一个 $b$ 值都可以进行更新。</li>
+<li>如果$\alpha_1,\alpha_2$都在边界上，$b_1$ 与 $b_2$ 之间的任意 值都可以进行更新。</li>
+</ol>
+<p>第一点非常好理解，第二点是因为在都满足KKT条件的情况下，b值应该是唯一的，关于第三点我一直都有疑问，在这里尝试说一下我的想法, 想法非常地 trivial: 分两种情况讨论</p>
+<ol>
+<li>因为$\alpha_1,\alpha_2$都在边界上，假设$\alpha_1,\alpha_2$的值相同，这也就是说 $\alpha_1,\alpha_2$ 在刚刚的那一轮更新中一定是同增（对应值为C）或者同减(对应值为0)，如若不然，那么在之前的更新中必然已经出现了违反约束的情况，而我们实际上进行了裁剪，所以这种情况不存在，此时同增同减意味着，$y_1,y_2$异号，这样的话，由于上述计算 $b$ 的公式 是从$y_i(w^{\mathrm{T}}x_i + b) = 1$的条件下推出的，此时在边界上需要满足的是不等关系，解对应的两个不等式，由于$y_1,y_2$异号,这样合理的 $b$ 一定在 $b_1,b_2$之间。</li>
+<li>与1） 类似，$\alpha_1,\alpha_2$ 的值如果不同的话，那么$y_1,y_2$则一定同号，同样的，合理的 $b$ 一定在 $b_1,b_2$之间。</li>
+</ol>
+<h3 id="如何选择待更新的alpha_1alpha_2">如何选择待更新的$\alpha_1,\alpha_2$<a hidden class="anchor" aria-hidden="true" href="#如何选择待更新的alpha_1alpha_2">#</a></h3>
+<p>to be continued。。。</p>
+<h2 id="smo的一个简单实现">SMO的一个简单实现<a hidden class="anchor" aria-hidden="true" href="#smo的一个简单实现">#</a></h2>
+<p>下面是一个简化版的SMO-SVM实现，有很多方面没有照顾到，后续会再实现一个较为完整的版本，此处仅用作展示算法流程。</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-python" data-lang="python"><span class="line"><span class="cl"><span class="ch">#!/usr/bin/env python</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># encoding: utf-8</span>
+</span></span><span class="line"><span class="cl"><span class="s2">&#34;&#34;&#34;
+</span></span></span><span class="line"><span class="cl"><span class="s2">@author: lebronran
+</span></span></span><span class="line"><span class="cl"><span class="s2">@site: https://chosenone75.github.io
+</span></span></span><span class="line"><span class="cl"><span class="s2">@time: 2017/8/29 0029 19:04
+</span></span></span><span class="line"><span class="cl"><span class="s2">&#34;&#34;&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="kn">from</span> <span class="nn">__future__</span> <span class="kn">import</span> <span class="n">print_function</span>
+</span></span><span class="line"><span class="cl"><span class="kn">from</span> <span class="nn">__future__</span> <span class="kn">import</span> <span class="n">division</span>
+</span></span><span class="line"><span class="cl"><span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+</span></span><span class="line"><span class="cl"><span class="kn">import</span> <span class="nn">re</span>
+</span></span><span class="line"><span class="cl"><span class="kn">import</span> <span class="nn">time</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># helper function for the implement of simplified SMO algorithm</span>
+</span></span><span class="line"><span class="cl"><span class="k">def</span> <span class="nf">loadDataSet</span><span class="p">(</span><span class="n">filename</span><span class="p">):</span>
+</span></span><span class="line"><span class="cl">    <span class="n">examples</span> <span class="o">=</span> <span class="p">[]</span>
+</span></span><span class="line"><span class="cl">    <span class="n">labels</span> <span class="o">=</span> <span class="p">[]</span>
+</span></span><span class="line"><span class="cl">    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span><span class="s2">&#34;rb&#34;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">f</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">            <span class="n">nums</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&#34;\s+&#34;</span><span class="p">,</span><span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">())</span>
+</span></span><span class="line"><span class="cl">            <span class="n">examples</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="nb">float</span><span class="p">(</span><span class="n">nums</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span><span class="nb">float</span><span class="p">(</span><span class="n">nums</span><span class="p">[</span><span class="mi">1</span><span class="p">])])</span>
+</span></span><span class="line"><span class="cl">            <span class="n">labels</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">nums</span><span class="p">[</span><span class="mi">2</span><span class="p">]))</span>
+</span></span><span class="line"><span class="cl">    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">examples</span><span class="p">),</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">labels</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="k">def</span> <span class="nf">selectJRand</span><span class="p">(</span><span class="n">i</span><span class="p">,</span><span class="n">m</span><span class="p">):</span>
+</span></span><span class="line"><span class="cl">    <span class="n">j</span> <span class="o">=</span> <span class="n">i</span>
+</span></span><span class="line"><span class="cl">    <span class="k">while</span> <span class="n">j</span> <span class="o">==</span> <span class="n">i</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">        <span class="n">j</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">uniform</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="n">m</span><span class="p">))</span>
+</span></span><span class="line"><span class="cl">    <span class="k">return</span> <span class="n">j</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="k">def</span> <span class="nf">clipAlpha</span><span class="p">(</span><span class="n">alpha_new</span><span class="p">,</span><span class="n">H</span><span class="p">,</span><span class="n">L</span><span class="p">):</span>
+</span></span><span class="line"><span class="cl">    <span class="k">if</span> <span class="n">alpha_new</span> <span class="o">&gt;</span> <span class="n">H</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">        <span class="n">alpha_new</span> <span class="o">=</span> <span class="n">H</span>
+</span></span><span class="line"><span class="cl">    <span class="k">elif</span> <span class="n">alpha_new</span> <span class="o">&lt;</span> <span class="n">L</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">        <span class="n">alpha_new</span> <span class="o">=</span> <span class="n">L</span>
+</span></span><span class="line"><span class="cl">    <span class="k">return</span> <span class="n">alpha_new</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="k">def</span> <span class="nf">simpleSMO</span><span class="p">(</span><span class="n">training_x</span><span class="p">,</span><span class="n">training_y</span><span class="p">,</span><span class="n">C</span><span class="p">,</span><span class="n">toler</span><span class="p">,</span><span class="n">maxiter</span><span class="o">=</span><span class="mi">100</span><span class="p">):</span>
+</span></span><span class="line"><span class="cl">    <span class="s1">&#39;&#39;&#39;
+</span></span></span><span class="line"><span class="cl"><span class="s1">    :param training_x: training set of example
+</span></span></span><span class="line"><span class="cl"><span class="s1">    :param training_y: the class labels of training examples
+</span></span></span><span class="line"><span class="cl"><span class="s1">    :param C: the factor tradeoff between accuracy and margin
+</span></span></span><span class="line"><span class="cl"><span class="s1">    :param toler: a small number for numbericl stablity, typically 0.001
+</span></span></span><span class="line"><span class="cl"><span class="s1">    :param maxiter: the number of the iteration
+</span></span></span><span class="line"><span class="cl"><span class="s1">    :return: weight, bias
+</span></span></span><span class="line"><span class="cl"><span class="s1">    &#39;&#39;&#39;</span>
+</span></span><span class="line"><span class="cl">    <span class="n">examples</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">matrix</span><span class="p">(</span><span class="n">training_x</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">    <span class="n">labels</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">matrix</span><span class="p">(</span><span class="n">training_y</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">()</span>
+</span></span><span class="line"><span class="cl">    <span class="n">b</span> <span class="o">=</span> <span class="mi">0</span>
+</span></span><span class="line"><span class="cl">    <span class="n">m</span><span class="p">,</span><span class="n">n</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">shape</span><span class="p">(</span><span class="n">examples</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">    <span class="n">alphas</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">matrix</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">m</span><span class="p">,</span><span class="mi">1</span><span class="p">)))</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    <span class="nb">iter</span> <span class="o">=</span> <span class="mi">0</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    <span class="k">while</span> <span class="nb">iter</span> <span class="o">&lt;</span> <span class="n">maxiter</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">        <span class="n">numChanged</span> <span class="o">=</span> <span class="mi">0</span>
+</span></span><span class="line"><span class="cl">        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">m</span><span class="p">):</span>
+</span></span><span class="line"><span class="cl">            <span class="n">fXi</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">multiply</span><span class="p">(</span><span class="n">alphas</span><span class="p">,</span><span class="n">labels</span><span class="p">)</span><span class="o">.</span><span class="n">T</span> <span class="o">*</span> <span class="p">(</span><span class="n">examples</span> <span class="o">*</span> <span class="n">examples</span><span class="p">[</span><span class="n">i</span><span class="p">,:]</span><span class="o">.</span><span class="n">T</span><span class="p">)</span> <span class="o">+</span> <span class="n">b</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">            <span class="n">Ei</span> <span class="o">=</span> <span class="n">fXi</span> <span class="o">-</span> <span class="nb">float</span><span class="p">(</span><span class="n">labels</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+</span></span><span class="line"><span class="cl">            <span class="k">if</span> <span class="p">(</span><span class="n">labels</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">Ei</span> <span class="o">&lt;</span> <span class="o">-</span><span class="n">toler</span> <span class="ow">and</span> <span class="n">alphas</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">C</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span>
+</span></span><span class="line"><span class="cl">                                <span class="n">labels</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">Ei</span> <span class="o">&gt;</span> <span class="n">toler</span> <span class="ow">and</span> <span class="n">alphas</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">):</span>
+</span></span><span class="line"><span class="cl">                <span class="n">j</span> <span class="o">=</span> <span class="n">selectJRand</span><span class="p">(</span><span class="n">i</span><span class="p">,</span><span class="n">m</span><span class="p">)</span> <span class="c1"># so-called the simplified SMO</span>
+</span></span><span class="line"><span class="cl">                <span class="n">fXj</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">multiply</span><span class="p">(</span><span class="n">alphas</span><span class="p">,</span> <span class="n">labels</span><span class="p">)</span><span class="o">.</span><span class="n">T</span> <span class="o">*</span> <span class="p">(</span><span class="n">examples</span> <span class="o">*</span> <span class="n">examples</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="p">:]</span><span class="o">.</span><span class="n">T</span><span class="p">)</span> <span class="o">+</span> <span class="n">b</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">                <span class="n">Ej</span> <span class="o">=</span> <span class="n">fXj</span> <span class="o">-</span> <span class="nb">float</span><span class="p">(</span><span class="n">labels</span><span class="p">[</span><span class="n">j</span><span class="p">])</span>
+</span></span><span class="line"><span class="cl">                <span class="n">alpha_i_old</span> <span class="o">=</span> <span class="n">alphas</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+</span></span><span class="line"><span class="cl">                <span class="n">alpha_j_old</span> <span class="o">=</span> <span class="n">alphas</span><span class="p">[</span><span class="n">j</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+</span></span><span class="line"><span class="cl">                <span class="k">if</span> <span class="n">labels</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">!=</span> <span class="n">labels</span><span class="p">[</span><span class="n">j</span><span class="p">]:</span>
+</span></span><span class="line"><span class="cl">                    <span class="n">L</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="n">alphas</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">-</span> <span class="n">alphas</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+</span></span><span class="line"><span class="cl">                    <span class="n">H</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">C</span><span class="p">,</span><span class="n">C</span><span class="o">+</span><span class="n">alphas</span><span class="p">[</span><span class="n">j</span><span class="p">]</span><span class="o">-</span><span class="n">alphas</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+</span></span><span class="line"><span class="cl">                <span class="k">else</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">                    <span class="n">L</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="n">alphas</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">alphas</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">-</span> <span class="n">C</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">                    <span class="n">H</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">C</span><span class="p">,</span><span class="n">alphas</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">alphas</span><span class="p">[</span><span class="n">j</span><span class="p">])</span>
+</span></span><span class="line"><span class="cl">                <span class="k">if</span> <span class="n">L</span> <span class="o">==</span> <span class="n">H</span><span class="p">:</span> <span class="nb">print</span><span class="p">(</span><span class="s2">&#34;L==H&#34;</span><span class="p">);</span><span class="k">continue</span>
+</span></span><span class="line"><span class="cl">                <span class="n">eta</span> <span class="o">=</span> <span class="mf">2.0</span> <span class="o">*</span> <span class="n">examples</span><span class="p">[</span><span class="n">i</span><span class="p">,:]</span> <span class="o">*</span> <span class="n">examples</span><span class="p">[</span><span class="n">j</span><span class="p">,:]</span><span class="o">.</span><span class="n">T</span> <span class="o">-</span> \
+</span></span><span class="line"><span class="cl">                            <span class="n">examples</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">:]</span> <span class="o">*</span> <span class="n">examples</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">:]</span><span class="o">.</span><span class="n">T</span> <span class="o">-</span> \
+</span></span><span class="line"><span class="cl">                            <span class="n">examples</span><span class="p">[</span><span class="n">j</span><span class="p">,:]</span> <span class="o">*</span> <span class="n">examples</span><span class="p">[</span><span class="n">j</span><span class="p">,:]</span><span class="o">.</span><span class="n">T</span>
+</span></span><span class="line"><span class="cl">                <span class="k">if</span> <span class="n">eta</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">:</span> <span class="nb">print</span><span class="p">(</span><span class="s2">&#34;eta is greater than zero,just move on here&#34;</span><span class="p">);</span><span class="k">continue</span>
+</span></span><span class="line"><span class="cl">                <span class="n">alphas</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">-=</span> <span class="n">labels</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">Ei</span> <span class="o">-</span> <span class="n">Ej</span><span class="p">)</span> <span class="o">/</span> <span class="n">eta</span>
+</span></span><span class="line"><span class="cl">                <span class="n">alphas</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">clipAlpha</span><span class="p">(</span><span class="n">alphas</span><span class="p">[</span><span class="n">j</span><span class="p">],</span><span class="n">H</span><span class="p">,</span><span class="n">L</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">                <span class="k">if</span> <span class="nb">abs</span><span class="p">(</span><span class="n">alphas</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">-</span> <span class="n">alpha_j_old</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mf">0.0001</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">                    <span class="nb">print</span><span class="p">(</span><span class="s2">&#34;the step size is not enough, just move on here&#34;</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">                    <span class="k">continue</span>
+</span></span><span class="line"><span class="cl">                <span class="n">alphas</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+=</span> <span class="n">labels</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">labels</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">alpha_j_old</span> <span class="o">-</span> <span class="n">alphas</span><span class="p">[</span><span class="n">j</span><span class="p">])</span>
+</span></span><span class="line"><span class="cl">                <span class="n">b1</span> <span class="o">=</span> <span class="n">b</span> <span class="o">-</span> <span class="n">Ei</span> <span class="o">-</span> <span class="n">labels</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">*</span><span class="p">(</span><span class="n">alphas</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">-</span> <span class="n">alpha_i_old</span><span class="p">)</span>\
+</span></span><span class="line"><span class="cl">                              <span class="o">*</span><span class="n">examples</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">:]</span> <span class="o">*</span> <span class="n">examples</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">:]</span><span class="o">.</span><span class="n">T</span> \
+</span></span><span class="line"><span class="cl">                              <span class="o">-</span> <span class="n">labels</span><span class="p">[</span><span class="n">j</span><span class="p">]</span><span class="o">*</span><span class="p">(</span><span class="n">alphas</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">-</span> <span class="n">alpha_j_old</span><span class="p">)</span> \
+</span></span><span class="line"><span class="cl">                              <span class="o">*</span><span class="n">examples</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">:]</span> <span class="o">*</span> <span class="n">examples</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="p">:]</span><span class="o">.</span><span class="n">T</span>
+</span></span><span class="line"><span class="cl">                <span class="n">b2</span> <span class="o">=</span> <span class="n">b</span> <span class="o">-</span> <span class="n">Ej</span> <span class="o">-</span> <span class="n">labels</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">alphas</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">-</span> <span class="n">alpha_i_old</span><span class="p">)</span> \
+</span></span><span class="line"><span class="cl">                              <span class="o">*</span> <span class="n">examples</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">:]</span> <span class="o">*</span> <span class="n">examples</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="p">:]</span><span class="o">.</span><span class="n">T</span> \
+</span></span><span class="line"><span class="cl">                              <span class="o">-</span> <span class="n">labels</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">alphas</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">-</span> <span class="n">alpha_j_old</span><span class="p">)</span> \
+</span></span><span class="line"><span class="cl">                              <span class="o">*</span> <span class="n">examples</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="p">:]</span> <span class="o">*</span> <span class="n">examples</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="p">:]</span><span class="o">.</span><span class="n">T</span>
+</span></span><span class="line"><span class="cl">                <span class="c1"># update the bias</span>
+</span></span><span class="line"><span class="cl">                <span class="k">if</span> <span class="n">alphas</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">alphas</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">C</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">                    <span class="n">b</span> <span class="o">=</span> <span class="n">b1</span>
+</span></span><span class="line"><span class="cl">                <span class="k">elif</span>  <span class="n">alphas</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">alphas</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">C</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">                    <span class="n">b</span> <span class="o">=</span> <span class="n">b2</span>
+</span></span><span class="line"><span class="cl">                <span class="k">else</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">                    <span class="n">b</span> <span class="o">=</span> <span class="p">(</span><span class="n">b1</span> <span class="o">+</span> <span class="n">b2</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span>
+</span></span><span class="line"><span class="cl">                <span class="n">numChanged</span> <span class="o">+=</span> <span class="mi">1</span>
+</span></span><span class="line"><span class="cl">                <span class="nb">print</span><span class="p">(</span><span class="s2">&#34;iter : </span><span class="si">%d</span><span class="s2">, i: </span><span class="si">%d</span><span class="s2">, </span><span class="si">%d</span><span class="s2"> pairs changed&#34;</span> <span class="o">%</span> <span class="p">(</span><span class="nb">iter</span><span class="p">,</span><span class="n">i</span><span class="p">,</span><span class="n">numChanged</span><span class="p">))</span>
+</span></span><span class="line"><span class="cl">        <span class="k">if</span> <span class="n">numChanged</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">            <span class="nb">iter</span> <span class="o">+=</span> <span class="mi">1</span>
+</span></span><span class="line"><span class="cl">        <span class="k">else</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">            <span class="nb">iter</span> <span class="o">=</span> <span class="mi">0</span>
+</span></span><span class="line"><span class="cl">        <span class="nb">print</span><span class="p">(</span><span class="s2">&#34;iternum: </span><span class="si">%d</span><span class="s2">.&#34;</span> <span class="o">%</span> <span class="nb">iter</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">    <span class="k">return</span> <span class="n">b</span><span class="p">,</span><span class="n">alphas</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="n">training_x</span><span class="p">,</span><span class="n">training_y</span> <span class="o">=</span> <span class="n">loadDataSet</span><span class="p">(</span><span class="s2">&#34;data/testSet.txt&#34;</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="n">begin</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+</span></span><span class="line"><span class="cl"><span class="n">b</span><span class="p">,</span><span class="n">alphas</span> <span class="o">=</span> <span class="n">simpleSMO</span><span class="p">(</span><span class="n">training_x</span><span class="p">,</span><span class="n">training_y</span><span class="p">,</span><span class="mf">0.6</span><span class="p">,</span><span class="mf">0.001</span><span class="p">,</span><span class="mi">40</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl"><span class="n">end</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+</span></span><span class="line"><span class="cl"><span class="nb">print</span><span class="p">(</span><span class="s2">&#34;The time costed totally : </span><span class="si">%d</span><span class="s2"> s.&#34;</span> <span class="o">%</span> <span class="p">(</span><span class="n">end</span> <span class="o">-</span> <span class="n">begin</span><span class="p">))</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="nb">print</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl"><span class="nb">print</span><span class="p">(</span><span class="n">alphas</span><span class="p">[</span><span class="n">alphas</span><span class="o">&gt;</span><span class="mi">0</span><span class="p">])</span>
+</span></span></code></pre></div><h2 id="参考资料">参考资料<a hidden class="anchor" aria-hidden="true" href="#参考资料">#</a></h2>
+<p><a href="www.google.com">还有几个比较好的英文资料，但出处没有找到，请自行google</a>
+<a href="http://web.cs.iastate.edu/~honavar/keerthi-svm.pdf">keerthi-svm</a>
+<a href="https://www.microsoft.com/en-us/research/publication/sequential-minimal-optimization-a-fast-algorithm-for-training-support-vector-machines/">sequential-minimal-optimization-a-fast-algorithm-for-training-support-vector-machines</a></p>
+
+  </div>
+
+  <footer class="post-footer">
+    <ul class="post-tags">
+      <li><a href="https://chosenone75.github.io/tags/support-vector-machine/">support vector machine</a></li>
+      <li><a href="https://chosenone75.github.io/tags/optimization/">optimization</a></li>
+      <li><a href="https://chosenone75.github.io/tags/smo/">smo</a></li>
+      <li><a href="https://chosenone75.github.io/tags/machine-learning/">machine learning</a></li>
+    </ul>
+<nav class="paginav">
+  <a class="prev" href="https://chosenone75.github.io/posts/test/">
+    <span class="title">« Prev Page</span>
+    <br>
+    <span>My 1st post</span>
+  </a>
+</nav>
+
+
+<div class="share-buttons">
+    <a target="_blank" rel="noopener noreferrer" aria-label="share 支持向量机-4-一点小Buff on twitter"
+        href="https://twitter.com/intent/tweet/?text=%e6%94%af%e6%8c%81%e5%90%91%e9%87%8f%e6%9c%ba-4-%e4%b8%80%e7%82%b9%e5%b0%8fBuff&amp;url=https%3a%2f%2fchosenone75.github.io%2fposts%2f2017-08-27-%25E6%2594%25AF%25E6%258C%2581%25E5%2590%2591%25E9%2587%258F%25E6%259C%25BA-4-%25E4%25B8%2580%25E7%2582%25B9%25E5%25B0%258Fbuff%2f&amp;hashtags=supportvectormachine%2coptimization%2csmo%2cmachinelearning">
+        <svg version="1.1" viewBox="0 0 512 512" xml:space="preserve">
+            <path
+                d="M449.446,0c34.525,0 62.554,28.03 62.554,62.554l0,386.892c0,34.524 -28.03,62.554 -62.554,62.554l-386.892,0c-34.524,0 -62.554,-28.03 -62.554,-62.554l0,-386.892c0,-34.524 28.029,-62.554 62.554,-62.554l386.892,0Zm-253.927,424.544c135.939,0 210.268,-112.643 210.268,-210.268c0,-3.218 0,-6.437 -0.153,-9.502c14.406,-10.421 26.973,-23.448 36.935,-38.314c-13.18,5.824 -27.433,9.809 -42.452,11.648c15.326,-9.196 26.973,-23.602 32.49,-40.92c-14.252,8.429 -30.038,14.56 -46.896,17.931c-13.487,-14.406 -32.644,-23.295 -53.946,-23.295c-40.767,0 -73.87,33.104 -73.87,73.87c0,5.824 0.613,11.494 1.992,16.858c-61.456,-3.065 -115.862,-32.49 -152.337,-77.241c-6.284,10.881 -9.962,23.601 -9.962,37.088c0,25.594 13.027,48.276 32.95,61.456c-12.107,-0.307 -23.448,-3.678 -33.41,-9.196l0,0.92c0,35.862 25.441,65.594 59.311,72.49c-6.13,1.686 -12.72,2.606 -19.464,2.606c-4.751,0 -9.348,-0.46 -13.946,-1.38c9.349,29.426 36.628,50.728 68.965,51.341c-25.287,19.771 -57.164,31.571 -91.8,31.571c-5.977,0 -11.801,-0.306 -17.625,-1.073c32.337,21.15 71.264,33.41 112.95,33.41Z" />
+        </svg>
+    </a>
+    <a target="_blank" rel="noopener noreferrer" aria-label="share 支持向量机-4-一点小Buff on linkedin"
+        href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fchosenone75.github.io%2fposts%2f2017-08-27-%25E6%2594%25AF%25E6%258C%2581%25E5%2590%2591%25E9%2587%258F%25E6%259C%25BA-4-%25E4%25B8%2580%25E7%2582%25B9%25E5%25B0%258Fbuff%2f&amp;title=%e6%94%af%e6%8c%81%e5%90%91%e9%87%8f%e6%9c%ba-4-%e4%b8%80%e7%82%b9%e5%b0%8fBuff&amp;summary=%e6%94%af%e6%8c%81%e5%90%91%e9%87%8f%e6%9c%ba-4-%e4%b8%80%e7%82%b9%e5%b0%8fBuff&amp;source=https%3a%2f%2fchosenone75.github.io%2fposts%2f2017-08-27-%25E6%2594%25AF%25E6%258C%2581%25E5%2590%2591%25E9%2587%258F%25E6%259C%25BA-4-%25E4%25B8%2580%25E7%2582%25B9%25E5%25B0%258Fbuff%2f">
+        <svg version="1.1" viewBox="0 0 512 512" xml:space="preserve">
+            <path
+                d="M449.446,0c34.525,0 62.554,28.03 62.554,62.554l0,386.892c0,34.524 -28.03,62.554 -62.554,62.554l-386.892,0c-34.524,0 -62.554,-28.03 -62.554,-62.554l0,-386.892c0,-34.524 28.029,-62.554 62.554,-62.554l386.892,0Zm-288.985,423.278l0,-225.717l-75.04,0l0,225.717l75.04,0Zm270.539,0l0,-129.439c0,-69.333 -37.018,-101.586 -86.381,-101.586c-39.804,0 -57.634,21.891 -67.617,37.266l0,-31.958l-75.021,0c0.995,21.181 0,225.717 0,225.717l75.02,0l0,-126.056c0,-6.748 0.486,-13.492 2.474,-18.315c5.414,-13.475 17.767,-27.434 38.494,-27.434c27.135,0 38.007,20.707 38.007,51.037l0,120.768l75.024,0Zm-307.552,-334.556c-25.674,0 -42.448,16.879 -42.448,39.002c0,21.658 16.264,39.002 41.455,39.002l0.484,0c26.165,0 42.452,-17.344 42.452,-39.002c-0.485,-22.092 -16.241,-38.954 -41.943,-39.002Z" />
+        </svg>
+    </a>
+    <a target="_blank" rel="noopener noreferrer" aria-label="share 支持向量机-4-一点小Buff on reddit"
+        href="https://reddit.com/submit?url=https%3a%2f%2fchosenone75.github.io%2fposts%2f2017-08-27-%25E6%2594%25AF%25E6%258C%2581%25E5%2590%2591%25E9%2587%258F%25E6%259C%25BA-4-%25E4%25B8%2580%25E7%2582%25B9%25E5%25B0%258Fbuff%2f&title=%e6%94%af%e6%8c%81%e5%90%91%e9%87%8f%e6%9c%ba-4-%e4%b8%80%e7%82%b9%e5%b0%8fBuff">
+        <svg version="1.1" viewBox="0 0 512 512" xml:space="preserve">
+            <path
+                d="M449.446,0c34.525,0 62.554,28.03 62.554,62.554l0,386.892c0,34.524 -28.03,62.554 -62.554,62.554l-386.892,0c-34.524,0 -62.554,-28.03 -62.554,-62.554l0,-386.892c0,-34.524 28.029,-62.554 62.554,-62.554l386.892,0Zm-3.446,265.638c0,-22.964 -18.616,-41.58 -41.58,-41.58c-11.211,0 -21.361,4.457 -28.841,11.666c-28.424,-20.508 -67.586,-33.757 -111.204,-35.278l18.941,-89.121l61.884,13.157c0.756,15.734 13.642,28.29 29.56,28.29c16.407,0 29.706,-13.299 29.706,-29.701c0,-16.403 -13.299,-29.702 -29.706,-29.702c-11.666,0 -21.657,6.792 -26.515,16.578l-69.105,-14.69c-1.922,-0.418 -3.939,-0.042 -5.585,1.036c-1.658,1.073 -2.811,2.761 -3.224,4.686l-21.152,99.438c-44.258,1.228 -84.046,14.494 -112.837,35.232c-7.468,-7.164 -17.589,-11.591 -28.757,-11.591c-22.965,0 -41.585,18.616 -41.585,41.58c0,16.896 10.095,31.41 24.568,37.918c-0.639,4.135 -0.99,8.328 -0.99,12.576c0,63.977 74.469,115.836 166.33,115.836c91.861,0 166.334,-51.859 166.334,-115.836c0,-4.218 -0.347,-8.387 -0.977,-12.493c14.564,-6.47 24.735,-21.034 24.735,-38.001Zm-119.474,108.193c-20.27,20.241 -59.115,21.816 -70.534,21.816c-11.428,0 -50.277,-1.575 -70.522,-21.82c-3.007,-3.008 -3.007,-7.882 0,-10.889c3.003,-2.999 7.882,-3.003 10.885,0c12.777,12.781 40.11,17.317 59.637,17.317c19.522,0 46.86,-4.536 59.657,-17.321c3.016,-2.999 7.886,-2.995 10.885,0.008c3.008,3.011 3.003,7.882 -0.008,10.889Zm-5.23,-48.781c-16.373,0 -29.701,-13.324 -29.701,-29.698c0,-16.381 13.328,-29.714 29.701,-29.714c16.378,0 29.706,13.333 29.706,29.714c0,16.374 -13.328,29.698 -29.706,29.698Zm-160.386,-29.702c0,-16.381 13.328,-29.71 29.714,-29.71c16.369,0 29.689,13.329 29.689,29.71c0,16.373 -13.32,29.693 -29.689,29.693c-16.386,0 -29.714,-13.32 -29.714,-29.693Z" />
+        </svg>
+    </a>
+    <a target="_blank" rel="noopener noreferrer" aria-label="share 支持向量机-4-一点小Buff on facebook"
+        href="https://facebook.com/sharer/sharer.php?u=https%3a%2f%2fchosenone75.github.io%2fposts%2f2017-08-27-%25E6%2594%25AF%25E6%258C%2581%25E5%2590%2591%25E9%2587%258F%25E6%259C%25BA-4-%25E4%25B8%2580%25E7%2582%25B9%25E5%25B0%258Fbuff%2f">
+        <svg version="1.1" viewBox="0 0 512 512" xml:space="preserve">
+            <path
+                d="M449.446,0c34.525,0 62.554,28.03 62.554,62.554l0,386.892c0,34.524 -28.03,62.554 -62.554,62.554l-106.468,0l0,-192.915l66.6,0l12.672,-82.621l-79.272,0l0,-53.617c0,-22.603 11.073,-44.636 46.58,-44.636l36.042,0l0,-70.34c0,0 -32.71,-5.582 -63.982,-5.582c-65.288,0 -107.96,39.569 -107.96,111.204l0,62.971l-72.573,0l0,82.621l72.573,0l0,192.915l-191.104,0c-34.524,0 -62.554,-28.03 -62.554,-62.554l0,-386.892c0,-34.524 28.029,-62.554 62.554,-62.554l386.892,0Z" />
+        </svg>
+    </a>
+    <a target="_blank" rel="noopener noreferrer" aria-label="share 支持向量机-4-一点小Buff on whatsapp"
+        href="https://api.whatsapp.com/send?text=%e6%94%af%e6%8c%81%e5%90%91%e9%87%8f%e6%9c%ba-4-%e4%b8%80%e7%82%b9%e5%b0%8fBuff%20-%20https%3a%2f%2fchosenone75.github.io%2fposts%2f2017-08-27-%25E6%2594%25AF%25E6%258C%2581%25E5%2590%2591%25E9%2587%258F%25E6%259C%25BA-4-%25E4%25B8%2580%25E7%2582%25B9%25E5%25B0%258Fbuff%2f">
+        <svg version="1.1" viewBox="0 0 512 512" xml:space="preserve">
+            <path
+                d="M449.446,0c34.525,0 62.554,28.03 62.554,62.554l0,386.892c0,34.524 -28.03,62.554 -62.554,62.554l-386.892,0c-34.524,0 -62.554,-28.03 -62.554,-62.554l0,-386.892c0,-34.524 28.029,-62.554 62.554,-62.554l386.892,0Zm-58.673,127.703c-33.842,-33.881 -78.847,-52.548 -126.798,-52.568c-98.799,0 -179.21,80.405 -179.249,179.234c-0.013,31.593 8.241,62.428 23.927,89.612l-25.429,92.884l95.021,-24.925c26.181,14.28 55.659,21.807 85.658,21.816l0.074,0c98.789,0 179.206,-80.413 179.247,-179.243c0.018,-47.895 -18.61,-92.93 -52.451,-126.81Zm-126.797,275.782l-0.06,0c-26.734,-0.01 -52.954,-7.193 -75.828,-20.767l-5.441,-3.229l-56.386,14.792l15.05,-54.977l-3.542,-5.637c-14.913,-23.72 -22.791,-51.136 -22.779,-79.287c0.033,-82.142 66.867,-148.971 149.046,-148.971c39.793,0.014 77.199,15.531 105.329,43.692c28.128,28.16 43.609,65.592 43.594,105.4c-0.034,82.149 -66.866,148.983 -148.983,148.984Zm81.721,-111.581c-4.479,-2.242 -26.499,-13.075 -30.604,-14.571c-4.105,-1.495 -7.091,-2.241 -10.077,2.241c-2.986,4.483 -11.569,14.572 -14.182,17.562c-2.612,2.988 -5.225,3.364 -9.703,1.12c-4.479,-2.241 -18.91,-6.97 -36.017,-22.23c-13.314,-11.876 -22.304,-26.542 -24.916,-31.026c-2.612,-4.484 -0.279,-6.908 1.963,-9.14c2.016,-2.007 4.48,-5.232 6.719,-7.847c2.24,-2.615 2.986,-4.484 4.479,-7.472c1.493,-2.99 0.747,-5.604 -0.374,-7.846c-1.119,-2.241 -10.077,-24.288 -13.809,-33.256c-3.635,-8.733 -7.327,-7.55 -10.077,-7.688c-2.609,-0.13 -5.598,-0.158 -8.583,-0.158c-2.986,0 -7.839,1.121 -11.944,5.604c-4.105,4.484 -15.675,15.32 -15.675,37.364c0,22.046 16.048,43.342 18.287,46.332c2.24,2.99 31.582,48.227 76.511,67.627c10.685,4.615 19.028,7.371 25.533,9.434c10.728,3.41 20.492,2.929 28.209,1.775c8.605,-1.285 26.499,-10.833 30.231,-21.295c3.732,-10.464 3.732,-19.431 2.612,-21.298c-1.119,-1.869 -4.105,-2.99 -8.583,-5.232Z" />
+        </svg>
+    </a>
+    <a target="_blank" rel="noopener noreferrer" aria-label="share 支持向量机-4-一点小Buff on telegram"
+        href="https://telegram.me/share/url?text=%e6%94%af%e6%8c%81%e5%90%91%e9%87%8f%e6%9c%ba-4-%e4%b8%80%e7%82%b9%e5%b0%8fBuff&amp;url=https%3a%2f%2fchosenone75.github.io%2fposts%2f2017-08-27-%25E6%2594%25AF%25E6%258C%2581%25E5%2590%2591%25E9%2587%258F%25E6%259C%25BA-4-%25E4%25B8%2580%25E7%2582%25B9%25E5%25B0%258Fbuff%2f">
+        <svg version="1.1" xml:space="preserve" viewBox="2 2 28 28">
+            <path
+                d="M26.49,29.86H5.5a3.37,3.37,0,0,1-2.47-1,3.35,3.35,0,0,1-1-2.47V5.48A3.36,3.36,0,0,1,3,3,3.37,3.37,0,0,1,5.5,2h21A3.38,3.38,0,0,1,29,3a3.36,3.36,0,0,1,1,2.46V26.37a3.35,3.35,0,0,1-1,2.47A3.38,3.38,0,0,1,26.49,29.86Zm-5.38-6.71a.79.79,0,0,0,.85-.66L24.73,9.24a.55.55,0,0,0-.18-.46.62.62,0,0,0-.41-.17q-.08,0-16.53,6.11a.59.59,0,0,0-.41.59.57.57,0,0,0,.43.52l4,1.24,1.61,4.83a.62.62,0,0,0,.63.43.56.56,0,0,0,.4-.17L16.54,20l4.09,3A.9.9,0,0,0,21.11,23.15ZM13.8,20.71l-1.21-4q8.72-5.55,8.78-5.55c.15,0,.23,0,.23.16a.18.18,0,0,1,0,.06s-2.51,2.3-7.52,6.8Z" />
+        </svg>
+    </a>
+</div>
+
+  </footer>
+</article>
+    </main>
+    
+<footer class="footer">
+    <span>&copy; 2022 <a href="https://chosenone75.github.io/">Ran&#39;s Blog</a></span>
+    <span>
+        Powered by
+        <a href="https://gohugo.io/" rel="noopener noreferrer" target="_blank">Hugo</a> &
+        <a href="https://git.io/hugopapermod" rel="noopener" target="_blank">PaperMod</a>
+    </span>
+</footer>
+<a href="#top" aria-label="go to top" title="Go to Top (Alt + G)" class="top-link" id="top-link" accesskey="g">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 6" fill="currentColor">
+        <path d="M12 6H0l6-6z" />
+    </svg>
+</a>
+
+<script>
+    let menu = document.getElementById('menu')
+    if (menu) {
+        menu.scrollLeft = localStorage.getItem("menu-scroll-position");
+        menu.onscroll = function () {
+            localStorage.setItem("menu-scroll-position", menu.scrollLeft);
+        }
+    }
+
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener("click", function (e) {
+            e.preventDefault();
+            var id = this.getAttribute("href").substr(1);
+            if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                document.querySelector(`[id='${decodeURIComponent(id)}']`).scrollIntoView({
+                    behavior: "smooth"
+                });
+            } else {
+                document.querySelector(`[id='${decodeURIComponent(id)}']`).scrollIntoView();
+            }
+            if (id === "top") {
+                history.replaceState(null, null, " ");
+            } else {
+                history.pushState(null, null, `#${id}`);
+            }
+        });
+    });
+
+</script>
+<script>
+    var mybutton = document.getElementById("top-link");
+    window.onscroll = function () {
+        if (document.body.scrollTop > 800 || document.documentElement.scrollTop > 800) {
+            mybutton.style.visibility = "visible";
+            mybutton.style.opacity = "1";
+        } else {
+            mybutton.style.visibility = "hidden";
+            mybutton.style.opacity = "0";
+        }
+    };
+
+</script>
+<script>
+    document.getElementById("theme-toggle").addEventListener("click", () => {
+        if (document.body.className.includes("dark")) {
+            document.body.classList.remove('dark');
+            localStorage.setItem("pref-theme", 'light');
+        } else {
+            document.body.classList.add('dark');
+            localStorage.setItem("pref-theme", 'dark');
+        }
+    })
+
+</script>
+<script>
+    document.querySelectorAll('pre > code').forEach((codeblock) => {
+        const container = codeblock.parentNode.parentNode;
+
+        const copybutton = document.createElement('button');
+        copybutton.classList.add('copy-code');
+        copybutton.innerText = 'copy';
+
+        function copyingDone() {
+            copybutton.innerText = 'copied!';
+            setTimeout(() => {
+                copybutton.innerText = 'copy';
+            }, 2000);
+        }
+
+        copybutton.addEventListener('click', (cb) => {
+            if ('clipboard' in navigator) {
+                navigator.clipboard.writeText(codeblock.textContent);
+                copyingDone();
+                return;
+            }
+
+            const range = document.createRange();
+            range.selectNodeContents(codeblock);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            try {
+                document.execCommand('copy');
+                copyingDone();
+            } catch (e) { };
+            selection.removeRange(range);
+        });
+
+        if (container.classList.contains("highlight")) {
+            container.appendChild(copybutton);
+        } else if (container.parentNode.firstChild == container) {
+            
+        } else if (codeblock.parentNode.parentNode.parentNode.parentNode.parentNode.nodeName == "TABLE") {
+            
+            codeblock.parentNode.parentNode.parentNode.parentNode.parentNode.appendChild(copybutton);
+        } else {
+            
+            codeblock.parentNode.appendChild(copybutton);
+        }
+    });
+</script>
+</body>
+
+</html>
